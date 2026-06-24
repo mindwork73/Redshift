@@ -1,0 +1,6 @@
+{
+  "name": "RedShift",
+  "description": "See the truth. Route your traffic. RedShift is a high-performance proxy and VPN utility client for the RedPill Cloud network, styled with a sleek cyberpunk hacker aesthetic and robust custom routing rules.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
