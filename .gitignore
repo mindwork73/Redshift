@@ -1,6 +1,5 @@
 # Local environment
 .env
-.env.example
 local.properties
 debug.keystore
 
@@ -43,3 +42,10 @@ __pycache__/
 # AI Studio template
 assets/.aistudio/
 metadata.json
+
+gradle-8.11.1/
+
+# Old project directory
+Redshift-Android/
+# Gradle distribution
+*.zip
