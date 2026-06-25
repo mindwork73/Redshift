@@ -24,14 +24,6 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install SDK 36
-        run: |
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-36" "build-tools;36.0.0" 2>&1 || true
-          echo "--- Installed platforms ---"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list 2>&1 | grep "platforms;android-" | head -10 || echo "(sdkmanager not found at expected path)"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -la $ANDROID_HOME/platforms/ 2>/dev/null || echo "No platforms dir"
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
