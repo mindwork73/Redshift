@@ -105,7 +105,7 @@ object RedShiftState {
 
     var userInfo by mutableStateOf<UserInfo?>(null)
 
-    var apiBaseUrl by mutableStateOf("http://216.57.106.89:8000")
+    var apiBaseUrl by mutableStateOf("https://api.redpillcloud.ru")
     var apiAdminToken by mutableStateOf("")
 
     var autoRefresh by mutableStateOf(false)
@@ -124,6 +124,8 @@ object RedShiftState {
     private var settingsStore: SettingsStore? = null
     private var appContext: Context? = null
     private var singBoxManager: SingBoxManager? = null
+    private var remoteHost = "216.57.106.89"
+    private var remotePort = 995
 
     private val apiClient: RedPillApiClient
         get() = RedPillApiClient(baseUrl = apiBaseUrl, adminToken = apiAdminToken)
@@ -327,12 +329,18 @@ object RedShiftState {
                         }
                     }
 
+                    if (!useLocalProxy) {
+                        val proxy = apiClient.getProxy()
+                        remoteHost = proxy?.host ?: "216.57.106.89"
+                        remotePort = proxy?.port ?: 995
+                    }
+
                     val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
                         action = RedShiftVpnService.ACTION_CONNECT
                         putExtra(RedShiftVpnService.EXTRA_USE_LOCAL_PROXY, useLocalProxy)
                         if (!useLocalProxy) {
-                            putExtra(RedShiftVpnService.EXTRA_HOST, "216.57.106.89")
-                            putExtra(RedShiftVpnService.EXTRA_PORT, 995)
+                            putExtra(RedShiftVpnService.EXTRA_HOST, remoteHost)
+                            putExtra(RedShiftVpnService.EXTRA_PORT, remotePort)
                         }
                     }
 

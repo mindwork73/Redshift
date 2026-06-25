@@ -55,7 +55,7 @@ data class ServerInfo(
 )
 
 class RedPillApiClient(
-    private val baseUrl: String = "http://216.57.106.89:8000",
+    private val baseUrl: String = "https://api.redpillcloud.ru",
     private val adminToken: String = ""
 ) {
     private val client = OkHttpClient.Builder()
@@ -65,12 +65,32 @@ class RedPillApiClient(
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
+    data class ProxyConfig(
+        val host: String,
+        val port: Int,
+        val protocol: String
+    )
+
     suspend fun ping(): Boolean = withContext(Dispatchers.IO) {
         try {
             val req = Request.Builder().url("$baseUrl/api/v1/ping").build()
             val resp = client.newCall(req).execute()
             resp.isSuccessful
         } catch (_: Exception) { false }
+    }
+
+    suspend fun getProxy(): ProxyConfig? = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder().url("$baseUrl/api/v1/proxy").build()
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return@withContext null
+            val json = JSONObject(resp.body!!.string())
+            ProxyConfig(
+                host = json.getString("host"),
+                port = json.getInt("port"),
+                protocol = json.getString("protocol")
+            )
+        } catch (_: Exception) { null }
     }
 
     suspend fun getUser(tgId: Int): UserInfo? = withContext(Dispatchers.IO) {
