@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    context.registerReceiver(receiver, IntentFilter("com.example.VPN_DISCONNECTED"))
+                    context.registerReceiver(receiver, IntentFilter("com.example.VPN_DISCONNECTED"), Context.RECEIVER_NOT_EXPORTED)
 
                     onDispose {
                         context.unregisterReceiver(receiver)
