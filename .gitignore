@@ -1,18 +1,45 @@
-*.iml
-.gradle
-.kotlin
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+# Local environment
 .env
+.env.example
+local.properties
 debug.keystore
+
+# Android / Gradle
+*.iml
+.gradle/
+.kotlin/
+.idea/
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+app/build/
+app/release/
+
+# Build logs
+*.log
+
+# Session notes
+session_*.md
+session-openmodel-*.md
+redpill-vpn-session.md
+redpill-vpn-session.lnk
+
+# Sing-box binaries (keep only extracted)
+*.tar.gz
+singbox_extract_arm/
+singbox_extract_arm64/
+
+# Subscription dumps
+subscription_raw.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv*/
+
+# AI Studio template
+assets/.aistudio/
+metadata.json
