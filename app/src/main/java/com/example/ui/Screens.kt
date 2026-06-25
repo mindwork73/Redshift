@@ -1963,6 +1963,53 @@ fun SettingsScreen() {
             }
         }
 
+        // Auto-refresh settings
+        SettingsHeader(title = "Subscription Auto-Refresh")
+        CyberCard {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SettingsSwitchRow(
+                    icon = Icons.Default.Sync,
+                    title = "Auto-refresh Subscription",
+                    description = "Periodically fetch latest server config in background.",
+                    checked = RedShiftState.autoRefresh,
+                    onCheckedChange = { enabled ->
+                        RedShiftState.setAutoRefreshEnabled(enabled, RedShiftState.autoRefreshInterval)
+                    }
+                )
+                if (RedShiftState.autoRefresh) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Interval", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(1, 3, 6, 12, 24).forEach { h ->
+                                val isSel = RedShiftState.autoRefreshInterval == h
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSel) RedPrimary else CyberElevated)
+                                        .clickable { RedShiftState.setAutoRefreshEnabled(true, h) }
+                                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("${h}h", color = if (isSel) Color.White else TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                    if (RedShiftState.lastRefreshTime > 0) {
+                        val lastRefresh = java.text.SimpleDateFormat("MMM dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(RedShiftState.lastRefreshTime))
+                        Text("Last refresh: $lastRefresh", color = TextMuted, fontSize = 11.sp)
+                    }
+                    if (RedShiftState.cachedServerCount > 0) {
+                        Text("Cached servers: ${RedShiftState.cachedServerCount}", color = TextSecondary, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
         // DNS & Port configs
         SettingsHeader(title = "Connection Engine Settings")
         CyberCard {

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +30,11 @@ class SettingsStore(private val context: Context) {
         val KEY_LANGUAGE = stringPreferencesKey("language")
         val KEY_SUBSCRIPTION_URL = stringPreferencesKey("subscription_url")
         val KEY_NOTIFICATIONS = booleanPreferencesKey("notifications")
+        val KEY_AUTO_REFRESH = booleanPreferencesKey("auto_refresh")
+        val KEY_REFRESH_INTERVAL_HOURS = intPreferencesKey("refresh_interval_hours")
+        val KEY_CACHED_SERVERS_JSON = stringPreferencesKey("cached_servers_json")
+        val KEY_CACHED_SERVERS_COUNT = intPreferencesKey("cached_servers_count")
+        val KEY_LAST_REFRESH_TIME = longPreferencesKey("last_refresh_time")
     }
 
     val startOnBoot: Flow<Boolean> = context.dataStore.data.map { it[KEY_START_ON_BOOT] ?: false }
@@ -42,6 +48,11 @@ class SettingsStore(private val context: Context) {
     val language: Flow<String> = context.dataStore.data.map { it[KEY_LANGUAGE] ?: "EN" }
     val subscriptionUrl: Flow<String> = context.dataStore.data.map { it[KEY_SUBSCRIPTION_URL] ?: "" }
     val notifications: Flow<Boolean> = context.dataStore.data.map { it[KEY_NOTIFICATIONS] ?: true }
+    val autoRefresh: Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_REFRESH] ?: false }
+    val refreshIntervalHours: Flow<Int> = context.dataStore.data.map { it[KEY_REFRESH_INTERVAL_HOURS] ?: 6 }
+    val cachedServersJson: Flow<String> = context.dataStore.data.map { it[KEY_CACHED_SERVERS_JSON] ?: "" }
+    val cachedServersCount: Flow<Int> = context.dataStore.data.map { it[KEY_CACHED_SERVERS_COUNT] ?: 0 }
+    val lastRefreshTime: Flow<Long> = context.dataStore.data.map { it[KEY_LAST_REFRESH_TIME] ?: 0L }
 
     suspend fun setStartOnBoot(value: Boolean) = context.dataStore.edit { it[KEY_START_ON_BOOT] = value }
     suspend fun setKillSwitch(value: Boolean) = context.dataStore.edit { it[KEY_KILL_SWITCH] = value }
@@ -54,6 +65,11 @@ class SettingsStore(private val context: Context) {
     suspend fun setLanguage(value: String) = context.dataStore.edit { it[KEY_LANGUAGE] = value }
     suspend fun setSubscriptionUrl(value: String) = context.dataStore.edit { it[KEY_SUBSCRIPTION_URL] = value }
     suspend fun setNotifications(value: Boolean) = context.dataStore.edit { it[KEY_NOTIFICATIONS] = value }
+    suspend fun setAutoRefresh(value: Boolean) = context.dataStore.edit { it[KEY_AUTO_REFRESH] = value }
+    suspend fun setRefreshIntervalHours(value: Int) = context.dataStore.edit { it[KEY_REFRESH_INTERVAL_HOURS] = value }
+    suspend fun setCachedServersJson(value: String) = context.dataStore.edit { it[KEY_CACHED_SERVERS_JSON] = value }
+    suspend fun setCachedServersCount(value: Int) = context.dataStore.edit { it[KEY_CACHED_SERVERS_COUNT] = value }
+    suspend fun setLastRefreshTime(value: Long) = context.dataStore.edit { it[KEY_LAST_REFRESH_TIME] = value }
 
     fun getBlockingSelectedServerId(): String {
         return runBlocking { selectedServerId.first() }
@@ -69,5 +85,13 @@ class SettingsStore(private val context: Context) {
 
     fun getBlockingSubscriptionUrl(): String {
         return runBlocking { subscriptionUrl.first() }
+    }
+
+    fun getBlockingAutoRefresh(): Boolean {
+        return runBlocking { autoRefresh.first() }
+    }
+
+    fun getBlockingCachedServersJson(): String {
+        return runBlocking { cachedServersJson.first() }
     }
 }

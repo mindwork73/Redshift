@@ -108,6 +108,11 @@ object RedShiftState {
     var apiBaseUrl by mutableStateOf("http://216.57.106.89:8000")
     var apiAdminToken by mutableStateOf("")
 
+    var autoRefresh by mutableStateOf(false)
+    var autoRefreshInterval by mutableStateOf(6)
+    var cachedServerCount by mutableStateOf(0)
+    var lastRefreshTime by mutableStateOf(0L)
+
     val servers = mutableStateListOf<Server>()
     val subscriptions = mutableStateListOf<Subscription>()
     val routingRules = mutableStateListOf<RoutingRule>()
@@ -130,6 +135,43 @@ object RedShiftState {
 
         resetDefaultData()
         loadFromSettings()
+        loadCachedServers()
+    }
+
+    private fun loadCachedServers() {
+        val store = settingsStore ?: return
+        scope.launch {
+            val json = store.getBlockingCachedServersJson()
+            if (json.isNotBlank()) {
+                try {
+                    val arr = org.json.JSONArray(json)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val id = obj.getString("id")
+                        if (servers.none { it.id == id }) {
+                            servers.add(Server(
+                                id = id,
+                                name = obj.optString("name", ""),
+                                protocol = obj.optString("protocol", ""),
+                                address = obj.optString("address", ""),
+                                port = obj.optInt("port", 443),
+                                flag = obj.optString("flag", "🌐"),
+                                subUuid = obj.optString("uuid", ""),
+                                subPassword = obj.optString("password", ""),
+                                subFlow = obj.optString("flow", ""),
+                                subEncryption = obj.optString("encryption", "none"),
+                                subNetwork = obj.optString("network", "tcp"),
+                                subTls = obj.optBoolean("tls", false),
+                                subSni = obj.optString("sni", ""),
+                                subPublicKey = obj.optString("publicKey", ""),
+                                subShortId = obj.optString("shortId", ""),
+                                subFingerprint = obj.optString("fingerprint", "chrome")
+                            ))
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     private fun loadFromSettings() {
@@ -158,6 +200,18 @@ object RedShiftState {
         }
         scope.launch {
             store.notifications.collect { vpnNotification = it }
+        }
+        scope.launch {
+            store.autoRefresh.collect { autoRefresh = it }
+        }
+        scope.launch {
+            store.refreshIntervalHours.collect { autoRefreshInterval = it }
+        }
+        scope.launch {
+            store.cachedServersCount.collect { cachedServerCount = it }
+        }
+        scope.launch {
+            store.lastRefreshTime.collect { lastRefreshTime = it }
         }
     }
 
@@ -367,6 +421,9 @@ object RedShiftState {
 
                 settingsStore?.let { store ->
                     store.setSubscriptionUrl(url)
+                    if (autoRefresh) {
+                        AutoRefreshScheduler.schedule(appContext!!, autoRefreshInterval.toLong())
+                    }
                 }
 
                 subscriptionUrl = url
@@ -418,5 +475,20 @@ object RedShiftState {
         subscriptionExpiry = "N/A"
         loginError = null
         servers.removeAll { it.id == "telegram_custom" }
+    }
+
+    fun setAutoRefreshEnabled(enabled: Boolean, intervalHours: Int = 6) {
+        autoRefresh = enabled
+        autoRefreshInterval = intervalHours
+        val ctx = appContext ?: return
+        scope.launch {
+            settingsStore?.setAutoRefresh(enabled)
+            settingsStore?.setRefreshIntervalHours(intervalHours)
+            if (enabled && subscriptionUrl.isNotBlank()) {
+                AutoRefreshScheduler.schedule(ctx, intervalHours.toLong())
+            } else if (!enabled) {
+                AutoRefreshScheduler.cancel(ctx)
+            }
+        }
     }
 }
