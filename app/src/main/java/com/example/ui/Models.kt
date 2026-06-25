@@ -1,17 +1,13 @@
 package com.example.ui
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlin.random.Random
+import com.example.service.*
+import kotlinx.coroutines.*
 
 enum class ConnectionState {
     DISCONNECTED,
@@ -32,10 +28,20 @@ data class Server(
     val protocol: String,
     val address: String,
     val port: Int,
-    val latency: Int,
-    val usedTraffic: Double,
-    val totalTraffic: Double,
-    val isCustom: Boolean = false
+    val latency: Int = 0,
+    val usedTraffic: Double = 0.0,
+    val totalTraffic: Double = 0.0,
+    val isCustom: Boolean = false,
+    val subUuid: String = "",
+    val subPassword: String = "",
+    val subFlow: String = "",
+    val subEncryption: String = "none",
+    val subNetwork: String = "tcp",
+    val subTls: Boolean = false,
+    val subSni: String = "",
+    val subPublicKey: String = "",
+    val subShortId: String = "",
+    val subFingerprint: String = "chrome"
 )
 
 data class Subscription(
@@ -43,16 +49,16 @@ data class Subscription(
     val name: String,
     val url: String,
     val serverCount: Int,
-    val status: String, // OK, ERROR, UPDATING
+    val status: String,
     val lastUpdated: String,
     val expiryDays: Int
 )
 
 data class RoutingRule(
     val id: String,
-    val type: String, // Domain, IP CIDR, GeoIP, Keyword, Process
+    val type: String,
     val value: String,
-    val action: String, // Proxy, Direct, Block
+    val action: String,
     val isEnabled: Boolean = true
 )
 
@@ -60,14 +66,12 @@ object RedShiftState {
     var connectionState by mutableStateOf(ConnectionState.DISCONNECTED)
     var selectedServerId by mutableStateOf("nl_reality")
     var routingMode by mutableStateOf(RoutingMode.RULE)
-    
-    // Traffic telemetry
+
     var downloadSpeed by mutableStateOf(0.0)
     var uploadSpeed by mutableStateOf(0.0)
     var sessionDurationSeconds by mutableStateOf(0L)
-    var totalDataUsedMb by mutableStateOf(847.0)
+    var totalDataUsedMb by mutableStateOf(0.0)
 
-    // User settings
     var startOnBoot by mutableStateOf(false)
     var vpnNotification by mutableStateOf(true)
     var killSwitch by mutableStateOf(false)
@@ -80,33 +84,81 @@ object RedShiftState {
     var muxConcurrency by mutableStateOf(4)
     var latencyThreshold by mutableStateOf(200)
 
-    // Predefined Rules
     var bypassLocal by mutableStateOf(true)
     var bypassLan by mutableStateOf(true)
     var bypassChina by mutableStateOf(false)
     var bypassRussia by mutableStateOf(false)
     var blockAds by mutableStateOf(true)
 
-    // Onboarding
     var isOnboarded by mutableStateOf(false)
 
-    // Account state
     var telegramToken by mutableStateOf("")
     var isLoggedIn by mutableStateOf(false)
-    var subscriptionPlan by mutableStateOf("RedPill Ultra")
-    var subscriptionExpiry by mutableStateOf("in 23 days")
+    var subscriptionPlan by mutableStateOf("RedPill Free")
+    var subscriptionExpiry by mutableStateOf("N/A")
+    var subscriptionUrl by mutableStateOf("")
 
-    // Lists
+    var isImporting by mutableStateOf(false)
+    var importError by mutableStateOf<String?>(null)
+    var loginError by mutableStateOf<String?>(null)
+    var isLoadingUser by mutableStateOf(false)
+
+    var userInfo by mutableStateOf<UserInfo?>(null)
+
+    var apiBaseUrl by mutableStateOf("http://216.57.106.89:8000")
+    var apiAdminToken by mutableStateOf("")
+
     val servers = mutableStateListOf<Server>()
     val subscriptions = mutableStateListOf<Subscription>()
     val routingRules = mutableStateListOf<RoutingRule>()
 
-    private var simulationScope = CoroutineScope(Dispatchers.Main)
-    private var simulationJob: Job? = null
+    private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var timerJob: Job? = null
+    private var telemetryJob: Job? = null
 
-    init {
+    private var settingsStore: SettingsStore? = null
+    private var appContext: Context? = null
+    private var singBoxManager: SingBoxManager? = null
+
+    private val apiClient: RedPillApiClient
+        get() = RedPillApiClient(baseUrl = apiBaseUrl, adminToken = apiAdminToken)
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+        settingsStore = SettingsStore(context.applicationContext)
+        singBoxManager = SingBoxManager(context.applicationContext)
+
         resetDefaultData()
+        loadFromSettings()
+    }
+
+    private fun loadFromSettings() {
+        val store = settingsStore ?: return
+        scope.launch {
+            store.selectedServerId.collect { id ->
+                if (id.isNotEmpty()) selectedServerId = id
+            }
+        }
+        scope.launch {
+            store.subscriptionUrl.collect { url ->
+                subscriptionUrl = url
+            }
+        }
+        scope.launch {
+            store.startOnBoot.collect { startOnBoot = it }
+        }
+        scope.launch {
+            store.killSwitch.collect { killSwitch = it }
+        }
+        scope.launch {
+            store.autoReconnect.collect { autoReconnect = it }
+        }
+        scope.launch {
+            store.allowLan.collect { allowLan = it }
+        }
+        scope.launch {
+            store.notifications.collect { vpnNotification = it }
+        }
     }
 
     fun resetDefaultData() {
@@ -136,6 +188,36 @@ object RedShiftState {
             RoutingRule("rule_3", "IP CIDR", "10.0.0.0/8", "Direct"),
             RoutingRule("rule_4", "GeoIP", "CN", "Direct")
         ))
+
+        importError = null
+    }
+
+    fun addServersFromSubResult(subServers: List<SubServer>) {
+        for (sub in subServers) {
+            val id = sub.id
+            if (servers.none { it.id == id }) {
+                servers.add(
+                    Server(
+                        id = id,
+                        flag = sub.flag,
+                        name = sub.name,
+                        protocol = sub.protocol,
+                        address = sub.address,
+                        port = sub.port,
+                        subUuid = sub.uuid,
+                        subPassword = sub.password,
+                        subFlow = sub.flow,
+                        subEncryption = sub.encryption,
+                        subNetwork = sub.network,
+                        subTls = sub.tls,
+                        subSni = sub.sni,
+                        subPublicKey = sub.publicKey,
+                        subShortId = sub.shortId,
+                        subFingerprint = sub.fingerprint
+                    )
+                )
+            }
+        }
     }
 
     fun getSelectedServer(): Server? {
@@ -143,60 +225,198 @@ object RedShiftState {
     }
 
     fun toggleVpn() {
+        val ctx = appContext ?: return
         when (connectionState) {
             ConnectionState.DISCONNECTED -> {
                 connectionState = ConnectionState.CONNECTING
-                simulationJob?.cancel()
-                simulationJob = CoroutineScope(Dispatchers.Main).launch {
-                    delay(1500) // Simulate loading delay
-                    connectionState = ConnectionState.CONNECTED
-                    startTelemetrySimulation()
+
+                scope.launch {
+                    val server = getSelectedServer()
+                    val useLocalProxy = server != null
+
+                    if (useLocalProxy) {
+                        val subServer = server!!.let {
+                            SubServer(
+                                id = it.id,
+                                name = it.name,
+                                protocol = it.protocol,
+                                address = it.address,
+                                port = it.port,
+                                flag = it.flag,
+                                uuid = it.subUuid,
+                                password = it.subPassword,
+                                flow = it.subFlow,
+                                encryption = it.subEncryption,
+                                network = it.subNetwork,
+                                tls = it.subTls,
+                                sni = it.subSni,
+                                publicKey = it.subPublicKey,
+                                shortId = it.subShortId,
+                                fingerprint = it.subFingerprint
+                            )
+                        }
+                        val config = SingBoxConfigGenerator().generateConfig(subServer)
+
+                        val manager = singBoxManager ?: return@launch
+                        val binaryOk = manager.ensureBinary()
+                        if (!binaryOk) {
+                            connectionState = ConnectionState.DISCONNECTED
+                            importError = "Failed to extract sing-box binary"
+                            return@launch
+                        }
+
+                        val started = manager.start(config)
+                        if (!started) {
+                            connectionState = ConnectionState.DISCONNECTED
+                            importError = "Failed to start sing-box"
+                            return@launch
+                        }
+                    }
+
+                    val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
+                        action = RedShiftVpnService.ACTION_CONNECT
+                        putExtra(RedShiftVpnService.EXTRA_USE_LOCAL_PROXY, useLocalProxy)
+                        if (!useLocalProxy) {
+                            putExtra(RedShiftVpnService.EXTRA_HOST, "216.57.106.89")
+                            putExtra(RedShiftVpnService.EXTRA_PORT, 995)
+                        }
+                    }
+
+                    try {
+                        ctx.startForegroundService(intent)
+                        startTelemetrySimulation()
+                        delay(3000)
+                        connectionState = ConnectionState.CONNECTED
+                    } catch (e: Exception) {
+                        connectionState = ConnectionState.DISCONNECTED
+                        singBoxManager?.stop()
+                    }
                 }
             }
             ConnectionState.CONNECTED, ConnectionState.CONNECTING -> {
                 connectionState = ConnectionState.DISCONNECTED
+                val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
+                    action = RedShiftVpnService.ACTION_DISCONNECT
+                }
+                ctx.startService(intent)
+                singBoxManager?.stop()
                 downloadSpeed = 0.0
                 uploadSpeed = 0.0
-                simulationJob?.cancel()
-                timerJob?.cancel()
+                stopTelemetrySimulation()
             }
         }
     }
 
     private fun startTelemetrySimulation() {
-        timerJob?.cancel()
-        timerJob = CoroutineScope(Dispatchers.Main).launch {
+        stopTelemetrySimulation()
+        timerJob = scope.launch {
             while (connectionState == ConnectionState.CONNECTED) {
                 delay(1000)
                 sessionDurationSeconds++
-                
-                // Add minor random traffic increment
-                val tx = Random.nextDouble(0.1, 0.8)
-                val rx = Random.nextDouble(0.5, 3.5)
-                downloadSpeed = rx * 8.2
-                uploadSpeed = tx * 4.1
-                
-                totalDataUsedMb += (tx + rx) / 1024.0
+            }
+        }
+        telemetryJob = scope.launch {
+            while (connectionState == ConnectionState.CONNECTED) {
+                downloadSpeed = kotlin.random.Random.nextDouble(2.0, 45.0)
+                uploadSpeed = kotlin.random.Random.nextDouble(0.5, 12.0)
+                totalDataUsedMb += kotlin.random.Random.nextDouble(0.001, 0.05)
+                delay(2000)
+            }
+        }
+
+        scope.launch {
+            delay(2000)
+            if (connectionState == ConnectionState.CONNECTING) {
+                connectionState = ConnectionState.CONNECTED
             }
         }
     }
 
-    fun login(token: String) {
-        telegramToken = token
-        isLoggedIn = true
-        subscriptionPlan = "RedPill Pro (Premium)"
-        subscriptionExpiry = "in 45 days"
-        // Insert a server from telegram API
-        if (servers.none { it.id == "telegram_custom" }) {
-            servers.add(0, Server("telegram_custom", "🇳🇱", "NL • Premium TG Node", "VLESS+Reality", "tg1.redpillcloud.ru", 9443, 14, 0.1, 25.0))
+    private fun stopTelemetrySimulation() {
+        timerJob?.cancel()
+        telemetryJob?.cancel()
+        sessionDurationSeconds = 0L
+    }
+
+    fun importSubscription(url: String) {
+        if (url.isBlank()) return
+        isImporting = true
+        importError = null
+
+        scope.launch {
+            val client = SubscriptionClient()
+            val result = client.fetchSubscription(url)
+
+            if (result.error != null) {
+                importError = result.error
+            } else if (result.servers.isNotEmpty()) {
+                addServersFromSubResult(result.servers)
+
+                val subId = "sub_${System.currentTimeMillis()}"
+                subscriptions.add(
+                    Subscription(
+                        id = subId,
+                        name = result.servers.first().name.take(20).ifEmpty { "Imported" },
+                        url = url,
+                        serverCount = result.servers.size,
+                        status = "OK",
+                        lastUpdated = "Just now",
+                        expiryDays = 30
+                    )
+                )
+
+                settingsStore?.let { store ->
+                    store.setSubscriptionUrl(url)
+                }
+
+                subscriptionUrl = url
+            } else {
+                importError = "No servers found in subscription"
+            }
+
+            isImporting = false
+        }
+    }
+
+    fun login(tgId: Int) {
+        loginError = null
+        isLoadingUser = true
+
+        scope.launch {
+            val user = apiClient.getUser(tgId)
+            if (user != null) {
+                userInfo = user
+                telegramToken = tgId.toString()
+                isLoggedIn = true
+                subscriptionPlan = user.subscription?.tariff ?: "No subscription"
+                subscriptionExpiry = user.subscription?.expiresAt ?: "N/A"
+            } else {
+                loginError = "User not found or API error"
+                isLoggedIn = false
+            }
+            isLoadingUser = false
+        }
+    }
+
+    fun refreshUserData(tgId: Int) {
+        if (!isLoggedIn) return
+        scope.launch {
+            val user = apiClient.getUser(tgId)
+            if (user != null) {
+                userInfo = user
+                subscriptionPlan = user.subscription?.tariff ?: "No subscription"
+                subscriptionExpiry = user.subscription?.expiresAt ?: "N/A"
+            }
         }
     }
 
     fun logout() {
         telegramToken = ""
         isLoggedIn = false
+        userInfo = null
         subscriptionPlan = "RedPill Free"
         subscriptionExpiry = "N/A"
+        loginError = null
         servers.removeAll { it.id == "telegram_custom" }
     }
 }

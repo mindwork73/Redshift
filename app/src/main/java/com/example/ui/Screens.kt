@@ -1,6 +1,11 @@
 package com.example.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -16,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -33,6 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun MainAppContainer() {
@@ -63,11 +71,13 @@ fun MainAppContainer() {
                 var currentTab by remember { mutableStateOf("dashboard") }
                 var showAddRuleModal by remember { mutableStateOf(false) }
                 var showAddServerSheet by remember { mutableStateOf(false) }
+                val isAdmin = RedShiftState.apiAdminToken.isNotEmpty()
 
                 Scaffold(
                     bottomBar = {
                         CyberBottomBar(
                             selectedTab = currentTab,
+                            isAdmin = isAdmin,
                             onTabSelected = { 
                                 if (it == "add_server") {
                                     showAddServerSheet = true
@@ -96,6 +106,7 @@ fun MainAppContainer() {
                                 "servers" -> ServersScreen(onAddServerClick = { showAddServerSheet = true })
                                 "subscriptions" -> SubscriptionsScreen()
                                 "rules" -> RoutingRulesScreen(onAddRuleClick = { showAddRuleModal = true })
+                                "admin" -> if (isAdmin) AdminDashboardScreen()
                                 "settings" -> SettingsScreen()
                             }
                         }
@@ -145,7 +156,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
 
     val icon = when (panelIndex) {
         0 -> Icons.Default.Visibility
-        1 -> Icons.Default.AltRoute
+        1 -> Icons.AutoMirrored.Filled.AltRoute
         else -> Icons.Default.Security
     }
 
@@ -274,6 +285,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
 @Composable
 fun CyberBottomBar(
     selectedTab: String,
+    isAdmin: Boolean = false,
     onTabSelected: (String) -> Unit
 ) {
     Surface(
@@ -285,7 +297,7 @@ fun CyberBottomBar(
         tonalElevation = 8.dp
     ) {
         Column {
-            Divider(color = RedPrimary.copy(alpha = 0.15f), thickness = 0.5.dp)
+            HorizontalDivider(color = RedPrimary.copy(alpha = 0.15f), thickness = 0.5.dp)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -324,6 +336,15 @@ fun CyberBottomBar(
                     isSelected = selectedTab == "rules",
                     onClick = { onTabSelected("rules") }
                 )
+                if (isAdmin) {
+                    BottomNavItem(
+                        label = "ADMIN",
+                        icon = Icons.Default.Security,
+                        isSelected = selectedTab == "admin",
+                        onClick = { onTabSelected("admin") },
+                        accentColor = WarningAmber
+                    )
+                }
                 BottomNavItem(
                     label = Trans.get("tab_settings"),
                     icon = Icons.Default.Settings,
@@ -549,6 +570,7 @@ fun HeaderBentoCard() {
 
 @Composable
 fun ConnectionBentoCard() {
+    val context = LocalContext.current
     val connectionState = RedShiftState.connectionState
     val statusText = when (connectionState) {
         ConnectionState.DISCONNECTED -> Trans.get("disconnected")
@@ -564,6 +586,12 @@ fun ConnectionBentoCard() {
         ConnectionState.DISCONNECTED -> "Tap to wake up"
         ConnectionState.CONNECTING -> "Securing tunnel..."
         ConnectionState.CONNECTED -> "Tap to secure"
+    }
+
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) RedShiftState.toggleVpn()
     }
 
     Box(
@@ -604,7 +632,16 @@ fun ConnectionBentoCard() {
         ) {
             PulsingConnectionRing(
                 connectionState = connectionState,
-                onClick = { RedShiftState.toggleVpn() }
+                onClick = {
+                    if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.POST_NOTIFICATIONS
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        RedShiftState.toggleVpn()
+                    }
+                }
             )
 
             Column(
@@ -1403,24 +1440,24 @@ fun AddServerModalSheet(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     CyberButton(
-                        text = "Import Subscription",
+                        text = if (RedShiftState.isImporting) "Importing..." else "Import Subscription",
                         onClick = {
-                            if (subscriptionUrl.isEmpty()) subscriptionUrl = "https://redpillcloud.ru/sub/rp_custom"
-                            RedShiftState.subscriptions.add(
-                                Subscription(
-                                    id = "sub_" + System.currentTimeMillis(),
-                                    name = "Imported Sub Nodes",
-                                    url = subscriptionUrl,
-                                    serverCount = 12,
-                                    status = "OK",
-                                    lastUpdated = "Just Now",
-                                    expiryDays = 30
-                                )
-                            )
+                            val url = subscriptionUrl.ifEmpty { "https://redpillcloud.ru/sub/rp_custom" }
+                            RedShiftState.importSubscription(url)
                             onAdded()
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !RedShiftState.isImporting
                     )
+
+                    if (RedShiftState.importError != null) {
+                        Text(
+                            text = "Error: ${RedShiftState.importError}",
+                            color = ErrorRed,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1467,7 +1504,10 @@ fun SubscriptionsScreen() {
                 IconButton(
                     onClick = {
                         isRefreshing = true
-                        RedShiftState.resetDefaultData()
+                        val url = RedShiftState.subscriptionUrl
+                        if (url.isNotEmpty()) {
+                            RedShiftState.importSubscription(url)
+                        }
                         isRefreshing = false
                         Toast.makeText(context, "Subscriptions Synchronized!", Toast.LENGTH_SHORT).show()
                     }
@@ -1520,6 +1560,7 @@ fun SubscriptionsScreen() {
 
                                     IconButton(
                                         onClick = {
+                                            RedShiftState.importSubscription(sub.url)
                                             Toast.makeText(context, "Synchronizing nodes...", Toast.LENGTH_SHORT).show()
                                         },
                                         modifier = Modifier.size(24.dp)
@@ -1823,7 +1864,7 @@ fun SettingsScreen() {
                 checked = RedShiftState.startOnBoot,
                 onCheckedChange = { RedShiftState.startOnBoot = it }
             )
-            Divider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
+            HorizontalDivider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
             SettingsSwitchRow(
                 icon = Icons.Outlined.Notifications,
                 title = "VPN Notification",
@@ -1831,7 +1872,7 @@ fun SettingsScreen() {
                 checked = RedShiftState.vpnNotification,
                 onCheckedChange = { RedShiftState.vpnNotification = it }
             )
-            Divider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
+            HorizontalDivider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
             SettingsSwitchRow(
                 icon = Icons.Outlined.Dangerous,
                 title = Trans.get("kill_switch"),
@@ -1846,52 +1887,77 @@ fun SettingsScreen() {
         SettingsHeader(title = "RedPill Cloud Credentials")
         CyberCard {
             if (!RedShiftState.isLoggedIn) {
-                var tempToken by remember { mutableStateOf("") }
+                var tgId by remember { mutableStateOf("") }
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Sign in with RedPill Cloud API",
+                        text = "Sign in with RedPill Cloud",
                         color = TextPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                     OutlinedTextField(
-                        value = tempToken,
-                        onValueChange = { tempToken = it },
-                        placeholder = { Text("Paste TG Bot API Token...") },
+                        value = tgId,
+                        onValueChange = { tgId = it },
+                        placeholder = { Text("Enter Telegram User ID...") },
                         colors = outlinedTextFieldColors(),
                         modifier = Modifier.fillMaxWidth()
                     )
                     CyberButton(
-                        text = "Connect RedPill Account",
+                        text = if (RedShiftState.isLoadingUser) "Loading..." else "Connect Account",
                         onClick = {
-                            if (tempToken.isNotEmpty()) {
-                                RedShiftState.login(tempToken)
-                                Toast.makeText(context, "Welcome, Operator! Sync Complete.", Toast.LENGTH_SHORT).show()
+                            val id = tgId.toIntOrNull()
+                            if (id != null) {
+                                RedShiftState.login(id)
                             } else {
-                                Toast.makeText(context, "Please paste an API token", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Enter a valid numeric Telegram ID", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !RedShiftState.isLoadingUser
                     )
+                    if (RedShiftState.loginError != null) {
+                        Text(
+                            text = "Error: ${RedShiftState.loginError}",
+                            color = ErrorRed,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(text = "Plan: " + RedShiftState.subscriptionPlan, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text(text = "Expires " + RedShiftState.subscriptionExpiry, color = SuccessGreen, fontSize = 12.sp)
-                    }
-                    Button(
-                        onClick = { RedShiftState.logout() },
-                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary.copy(alpha = 0.15f), contentColor = RedPrimary)
+                val user = RedShiftState.userInfo
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Log Out")
+                        Column {
+                            Text(text = "User: @${user?.username ?: RedShiftState.telegramToken}", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(text = "Plan: ${RedShiftState.subscriptionPlan}", color = TextPrimary, fontSize = 13.sp)
+                            Text(text = "Expires: ${RedShiftState.subscriptionExpiry.take(10)}", color = SuccessGreen, fontSize = 12.sp)
+                            if (user != null) {
+                                Text(text = "Devices: ${user.deviceCount}", color = TextSecondary, fontSize = 11.sp)
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                RedShiftState.refreshUserData(RedShiftState.telegramToken.toIntOrNull() ?: 0)
+                                Toast.makeText(context, "Refreshed!", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = PurpleSecondary.copy(alpha = 0.15f), contentColor = PurpleSecondary),
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            Text("↻")
+                        }
+                        Button(
+                            onClick = { RedShiftState.logout() },
+                            colors = ButtonDefaults.buttonColors(containerColor = RedPrimary.copy(alpha = 0.15f), contentColor = RedPrimary)
+                        ) {
+                            Text("Log Out")
+                        }
                     }
                 }
             }
@@ -1918,7 +1984,7 @@ fun SettingsScreen() {
                     fontWeight = FontWeight.Bold
                 )
             }
-            Divider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
+            HorizontalDivider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
             SettingsSwitchRow(
                 icon = Icons.Outlined.Lan,
                 title = "Allow LAN Connections",
@@ -1983,9 +2049,32 @@ fun SettingsScreen() {
                                 Icon(Icons.Default.Check, contentDescription = "Active", tint = RedPrimary, modifier = Modifier.size(16.dp))
                             }
                         }
-                        Divider(color = TextMuted.copy(alpha = 0.1f), thickness = 0.5.dp)
+                        HorizontalDivider(color = TextMuted.copy(alpha = 0.1f), thickness = 0.5.dp)
                     }
                 }
+            }
+        }
+
+        // Admin API Config
+        SettingsHeader(title = "Admin API Configuration")
+        CyberCard {
+            var tempAdminToken by remember { mutableStateOf(RedShiftState.apiAdminToken) }
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = tempAdminToken,
+                    onValueChange = { tempAdminToken = it },
+                    placeholder = { Text("Enter admin API token...") },
+                    colors = outlinedTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                CyberButton(
+                    text = "Set Admin Token",
+                    onClick = {
+                        RedShiftState.apiAdminToken = tempAdminToken
+                        Toast.makeText(context, "Admin token updated", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
@@ -2015,7 +2104,7 @@ fun SettingsScreen() {
                 }
             }
 
-            Divider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
+            HorizontalDivider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
 
             Row(
                 modifier = Modifier
@@ -2078,6 +2167,128 @@ fun SettingsSwitchRow(
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = RedPrimary)
         )
+    }
+}
+
+// ADMIN DASHBOARD SCREEN
+@Composable
+fun AdminDashboardScreen() {
+    val context = LocalContext.current
+    var stats by remember { mutableStateOf<AdminStats?>(null) }
+    var users by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var grantUserId by remember { mutableStateOf("") }
+    var grantTariff by remember { mutableStateOf("pro_1m") }
+    var grantDays by remember { mutableStateOf("30") }
+    var actionResult by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        val client = RedPillApiClient(
+            baseUrl = RedShiftState.apiBaseUrl,
+            adminToken = RedShiftState.apiAdminToken
+        )
+        stats = client.adminStats()
+        users = client.adminListUsers()
+        isLoading = false
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("ADMIN PANEL", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = WarningAmber,
+            fontFamily = FontFamily.Monospace)
+
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = RedPrimary)
+            }
+        } else {
+            // Stats cards
+            stats?.let { s ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatCard("Users", s.totalUsers.toString(), RedPrimary, Modifier.weight(1f))
+                    StatCard("Active", s.activeSubscriptions.toString(), SuccessGreen, Modifier.weight(1f))
+                    StatCard("Devices", s.totalDevices.toString(), PurpleSecondary, Modifier.weight(1f))
+                }
+            }
+
+            // Grant access
+            CyberCard {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Grant Access", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(value = grantUserId, onValueChange = { grantUserId = it },
+                        placeholder = { Text("User ID") }, colors = outlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("pro_1m", "pro_12m", "ru_1m").forEach { t ->
+                            val isSel = grantTariff == t
+                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp))
+                                .background(if (isSel) RedPrimary else CyberElevated)
+                                .clickable { grantTariff = t }.padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center) {
+                                Text(t, color = if (isSel) Color.White else TextSecondary, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                    OutlinedTextField(value = grantDays, onValueChange = { grantDays = it },
+                        placeholder = { Text("Days") }, colors = outlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth())
+                    CyberButton(text = "Grant Access", onClick = {
+                        coroutineScope.launch {
+                            val client = RedPillApiClient(adminToken = RedShiftState.apiAdminToken)
+                            val uid = grantUserId.toIntOrNull() ?: return@launch
+                            val res = client.adminGrant(uid, grantTariff, grantDays.toIntOrNull() ?: 30)
+                            actionResult = if (res != null) "OK: ${res.optJSONObject("result")?.optInt("subscription_id")}"
+                            else "Failed"
+                        }
+                    }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Users list
+            if (users != null) {
+                Text("Recent Users (max 100)", color = TextPrimary, fontWeight = FontWeight.Bold)
+                for (i in 0 until users!!.length()) {
+                    val u = users!!.getJSONObject(i)
+                    Card(colors = CardDefaults.cardColors(containerColor = CyberCard),
+                        border = BorderStroke(0.5.dp, TextMuted.copy(alpha = 0.3f))) {
+                        Row(modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Text("@${u.optString("username", "?")}", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("ID: ${u.getInt("user_id")}", color = TextSecondary, fontSize = 10.sp)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(u.optString("tariff", "none"), color = if (u.has("tariff")) SuccessGreen else TextMuted, fontSize = 11.sp)
+                                Text("Dev: ${u.optInt("device_count", 0)}", color = TextSecondary, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            actionResult?.let {
+                Text(it, color = if (it.startsWith("OK")) SuccessGreen else ErrorRed, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun StatCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Card(colors = CardDefaults.cardColors(containerColor = CyberCard),
+        border = BorderStroke(0.5.dp, color.copy(alpha = 0.3f)),
+        modifier = modifier) {
+        Column(modifier = Modifier.padding(12.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(value, color = color, fontSize = 24.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            Text(label.uppercase(), color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
