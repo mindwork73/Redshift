@@ -3,6 +3,7 @@ package com.example.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,6 +55,8 @@ import com.example.ui.theme.*
 import com.example.service.AdminStats
 import com.example.service.RedPillApiClient
 import kotlinx.coroutines.launch
+import android.app.Activity
+import android.net.VpnService
 
 @Composable
 fun MainAppContainer() {
@@ -71,7 +74,6 @@ fun MainAppContainer() {
                 OnboardingScreen(onFinished = { RedShiftState.isOnboarded = true })
             } else {
                 var currentTab by remember { mutableStateOf("dashboard") }
-                var showAddRuleModal by remember { mutableStateOf(false) }
                 var showAddServerSheet by remember { mutableStateOf(false) }
                 val isAdmin = RedShiftState.apiAdminToken.isNotEmpty()
 
@@ -79,7 +81,6 @@ fun MainAppContainer() {
                     bottomBar = {
                         CyberBottomBar(
                             selectedTab = currentTab,
-                            isAdmin = isAdmin,
                             onTabSelected = { 
                                 if (it == "add_server") {
                                     showAddServerSheet = true
@@ -106,9 +107,6 @@ fun MainAppContainer() {
                             when (tab) {
                                 "dashboard" -> DashboardScreen(onAddServerClick = { showAddServerSheet = true })
                                 "servers" -> ServersScreen(onAddServerClick = { showAddServerSheet = true })
-                                "subscriptions" -> SubscriptionsScreen()
-                                "rules" -> RoutingRulesScreen(onAddRuleClick = { showAddRuleModal = true })
-                                "admin" -> if (isAdmin) AdminDashboardScreen()
                                 "settings" -> SettingsScreen()
                             }
                         }
@@ -121,16 +119,6 @@ fun MainAppContainer() {
                         onAdded = {
                             showAddServerSheet = false
                             Toast.makeText(context, Trans.get("connected") + " Node Config", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
-
-                if (showAddRuleModal) {
-                    AddRuleDialog(
-                        onDismiss = { showAddRuleModal = false },
-                        onRuleAdded = { rule ->
-                            RedShiftState.routingRules.add(rule)
-                            showAddRuleModal = false
                         }
                     )
                 }
@@ -287,7 +275,6 @@ fun OnboardingScreen(onFinished: () -> Unit) {
 @Composable
 fun CyberBottomBar(
     selectedTab: String,
-    isAdmin: Boolean = false,
     onTabSelected: (String) -> Unit
 ) {
     Surface(
@@ -326,27 +313,6 @@ fun CyberBottomBar(
                     onClick = { onTabSelected("add_server") },
                     accentColor = RedPrimary
                 )
-                BottomNavItem(
-                    label = Trans.get("tab_subscriptions"),
-                    icon = Icons.Default.SyncAlt,
-                    isSelected = selectedTab == "subscriptions",
-                    onClick = { onTabSelected("subscriptions") }
-                )
-                BottomNavItem(
-                    label = Trans.get("tab_rules"),
-                    icon = Icons.Default.FilterList,
-                    isSelected = selectedTab == "rules",
-                    onClick = { onTabSelected("rules") }
-                )
-                if (isAdmin) {
-                    BottomNavItem(
-                        label = "ADMIN",
-                        icon = Icons.Default.Security,
-                        isSelected = selectedTab == "admin",
-                        onClick = { onTabSelected("admin") },
-                        accentColor = WarningAmber
-                    )
-                }
                 BottomNavItem(
                     label = Trans.get("tab_settings"),
                     icon = Icons.Default.Settings,
@@ -590,10 +556,23 @@ fun ConnectionBentoCard() {
         ConnectionState.CONNECTED -> "Tap to secure"
     }
 
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            RedShiftState.toggleVpn()
+        }
+    }
+
     val notifPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) RedShiftState.toggleVpn()
+        val intent = VpnService.prepare(context)
+        if (intent != null) {
+            vpnPermissionLauncher.launch(intent)
+        } else {
+            RedShiftState.toggleVpn()
+        }
     }
 
     Box(
@@ -635,13 +614,27 @@ fun ConnectionBentoCard() {
             PulsingConnectionRing(
                 connectionState = connectionState,
                 onClick = {
-                    if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
-                            context, Manifest.permission.POST_NOTIFICATIONS
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        RedShiftState.toggleVpn()
+                    Toast.makeText(context, "Ring clicked!", Toast.LENGTH_SHORT).show()
+                    try {
+                        Log.e("RedShiftVPN", "onClick fired")
+                        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
+                                context, Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            Toast.makeText(context, "Requesting notification perm", Toast.LENGTH_SHORT).show()
+                            Log.e("RedShiftVPN", "Requesting POST_NOTIFICATIONS")
+                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            val intent = VpnService.prepare(context)
+                            if (intent != null) {
+                                vpnPermissionLauncher.launch(intent)
+                            } else {
+                                RedShiftState.toggleVpn()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                        Log.e("RedShiftVPN", "onClick error: ${e.message}", e)
                     }
                 }
             )
@@ -846,6 +839,10 @@ fun QuickCapsule(
 
 @Composable
 fun RecentServersBentoCard() {
+    var expanded by remember { mutableStateOf(false) }
+    var pinging by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -862,72 +859,187 @@ fun RecentServersBentoCard() {
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif
             )
-            Text(
-                text = Trans.get("see_all").uppercase(),
-                color = RedPrimary,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable { /* No action needed */ }
-            )
-        }
-
-        // Horizontal scrolling bento cards for nodes
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            RedShiftState.servers.take(4).forEach { server ->
-                val isSelected = RedShiftState.selectedServerId == server.id
-
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(
                     modifier = Modifier
-                        .width(140.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(CyberCard)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(RedPrimary.copy(alpha = 0.15f))
+                        .clickable(enabled = !pinging) {
+                            pinging = true
+                            scope.launch {
+                                try {
+                                    val client = RedPillApiClient()
+                                    RedShiftState.servers.forEachIndexed { index, server ->
+                                        val start = System.currentTimeMillis()
+                                        try {
+                                            val result = client.ping()
+                                            if (result) {
+                                                val elapsed = (System.currentTimeMillis() - start).toInt()
+                                                RedShiftState.servers[index] = server.copy(latency = elapsed)
+                                            }
+                                        } catch (_: Exception) {
+                                            RedShiftState.servers[index] = server.copy(latency = -1)
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+                                pinging = false
+                            }
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = if (pinging) "•••" else "PING",
+                        color = RedPrimary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = (if (expanded) "▲" else "▼"),
+                    color = RedPrimary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { expanded = !expanded }
+                )
+            }
+        }
+
+        if (!expanded) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                RedShiftState.servers.take(4).forEach { server ->
+                    ServerMiniCard(server = server)
+                }
+            }
+        } else {
+            RedShiftState.servers.forEach { server ->
+                val isSelected = RedShiftState.selectedServerId == server.id
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isSelected) RedPrimary.copy(alpha = 0.1f) else CyberCard)
                         .border(
                             1.dp,
                             if (isSelected) RedPrimary.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.05f),
-                            RoundedCornerShape(16.dp)
+                            RoundedCornerShape(12.dp)
                         )
                         .clickable { RedShiftState.selectedServerId = server.id }
                         .padding(12.dp)
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(text = server.flag, fontSize = 20.sp)
-                            
-                            // Glowing green/yellow/red dot for latency state
-                            val statusColor = if (server.latency < 50) SuccessGreen else if (server.latency < 150) WarningAmber else ErrorRed
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = server.name.split(" • ").lastOrNull() ?: server.name,
+                                    color = if (isSelected) RedPrimary else TextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = server.protocol,
+                                    color = TextMuted,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            val statusColor = when {
+                                server.latency <= 0 -> TextMuted
+                                server.latency < 50 -> SuccessGreen
+                                server.latency < 150 -> WarningAmber
+                                else -> ErrorRed
+                            }
                             Box(
                                 modifier = Modifier
-                                    .size(6.dp)
+                                    .size(8.dp)
                                     .clip(CircleShape)
                                     .background(statusColor)
                             )
+                            if (server.latency > 0) {
+                                Text(
+                                    text = "${server.latency}ms",
+                                    color = statusColor,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
-
-                        Text(
-                            text = server.name.split(" • ").lastOrNull() ?: server.name,
-                            color = TextPrimary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-
-                        Text(
-                            text = "${server.latency}ms",
-                            color = TextMuted,
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun ServerMiniCard(server: Server) {
+    val isSelected = RedShiftState.selectedServerId == server.id
+    val context = LocalContext.current
+
+    Box(
+        modifier = Modifier
+            .width(140.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(CyberCard)
+            .border(
+                1.dp,
+                if (isSelected) RedPrimary.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.05f),
+                RoundedCornerShape(16.dp)
+            )
+            .clickable { RedShiftState.selectedServerId = server.id }
+            .padding(12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = server.flag, fontSize = 20.sp)
+
+                val statusColor = when {
+                    server.latency <= 0 -> TextMuted
+                    server.latency < 50 -> SuccessGreen
+                    server.latency < 150 -> WarningAmber
+                    else -> ErrorRed
+                }
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(statusColor)
+                )
+            }
+
+            Text(
+                text = server.name.split(" • ").lastOrNull() ?: server.name,
+                color = TextPrimary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+
+            if (server.latency > 0) {
+                Text(
+                    text = "${server.latency}ms",
+                    color = TextMuted,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
             }
         }
     }
@@ -939,7 +1051,7 @@ fun ServersScreen(onAddServerClick: () -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedProtocolFilter by remember { mutableStateOf("All") }
 
-    val filterChips = listOf("All", "VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "Favorites")
+    val filterChips = listOf("All", "VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria 2", "Favorites")
 
     val filteredServers = RedShiftState.servers.filter { server ->
         val matchesSearch = server.name.contains(searchQuery, ignoreCase = true) ||
@@ -1886,40 +1998,71 @@ fun SettingsScreen() {
         }
 
         // Account / RedPill Login Section
-        SettingsHeader(title = "RedPill Cloud Credentials")
+        SettingsHeader(title = "RedPill Cloud Account")
         CyberCard {
             if (!RedShiftState.isLoggedIn) {
+                var email by remember { mutableStateOf("") }
                 var tgId by remember { mutableStateOf("") }
+                var showManual by remember { mutableStateOf(false) }
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Sign in with RedPill Cloud",
+                        text = "Sign in with Telegram",
                         color = TextPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    OutlinedTextField(
-                        value = tgId,
-                        onValueChange = { tgId = it },
-                        placeholder = { Text("Enter Telegram User ID...") },
-                        colors = outlinedTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth()
+                    Text(
+                        text = "Open RedPill Cloud bot in Telegram and tap Start to auto-link your account.",
+                        color = TextSecondary,
+                        fontSize = 12.sp
                     )
                     CyberButton(
-                        text = if (RedShiftState.isLoadingUser) "Loading..." else "Connect Account",
+                        text = "Open Telegram Bot",
                         onClick = {
-                            val id = tgId.toIntOrNull()
-                            if (id != null) {
-                                RedShiftState.login(id)
-                            } else {
-                                Toast.makeText(context, "Enter a valid numeric Telegram ID", Toast.LENGTH_SHORT).show()
+                            try {
+                                val tgIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/RedPillCloudBot"))
+                                tgIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(tgIntent)
+                            } catch (_: Exception) {
+                                Toast.makeText(context, "Telegram not installed", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !RedShiftState.isLoadingUser
+                        modifier = Modifier.fillMaxWidth()
                     )
+
+                    TextButton(
+                        onClick = { showManual = !showManual },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Or enter Telegram ID manually", color = TextSecondary)
+                    }
+
+                    if (showManual) {
+                        OutlinedTextField(
+                            value = tgId,
+                            onValueChange = { tgId = it },
+                            placeholder = { Text("Telegram User ID") },
+                            colors = outlinedTextFieldColors(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        CyberButton(
+                            text = if (RedShiftState.isLoadingUser) "Loading..." else "Connect",
+                            onClick = {
+                                val id = tgId.toIntOrNull()
+                                if (id != null) {
+                                    RedShiftState.login(id)
+                                } else {
+                                    Toast.makeText(context, "Enter a valid numeric Telegram ID", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !RedShiftState.isLoadingUser
+                        )
+                    }
+
                     if (RedShiftState.loginError != null) {
                         Text(
                             text = "Error: ${RedShiftState.loginError}",
@@ -2012,161 +2155,158 @@ fun SettingsScreen() {
             }
         }
 
-        // DNS & Port configs
-        SettingsHeader(title = "Connection Engine Settings")
-        CyberCard {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("Local Socks Port", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Text("Current port used for browser proxification.", color = TextSecondary, fontSize = 11.sp)
-                }
-                Text(
-                    text = RedShiftState.localPort.toString(),
-                    color = RedPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            HorizontalDivider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
-            SettingsSwitchRow(
-                icon = Icons.Outlined.Lan,
-                title = "Allow LAN Connections",
-                description = "Share proxy with other devices in local wifi.",
-                checked = RedShiftState.allowLan,
-                onCheckedChange = { RedShiftState.allowLan = it }
+        var showAdvanced by remember { mutableStateOf(false) }
+        TextButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                if (showAdvanced) "▲ Hide Advanced Settings" else "▼ Advanced Settings",
+                color = TextSecondary,
+                fontSize = 12.sp
             )
         }
 
-        // Language settings
-        SettingsHeader(title = "Appearance & Language")
-        CyberCard {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showLangSelector = !showLangSelector }
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Outlined.Translate, contentDescription = null, tint = RedPrimary)
-                    Column {
-                        Text(text = Trans.get("language"), color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text(text = "App language overrides system locale.", color = TextSecondary, fontSize = 11.sp)
+        AnimatedVisibility(visible = showAdvanced) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                // DNS & Port configs
+                SettingsHeader(title = "Connection Engine Settings")
+                CyberCard {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Local Socks Port", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Current port used for browser proxification.", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Text(
+                            text = RedShiftState.localPort.toString(),
+                            color = RedPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
+                    HorizontalDivider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
+                    SettingsSwitchRow(
+                        icon = Icons.Outlined.Lan,
+                        title = "Allow LAN Connections",
+                        description = "Share proxy with other devices in local wifi.",
+                        checked = RedShiftState.allowLan,
+                        onCheckedChange = { RedShiftState.allowLan = it }
+                    )
                 }
-                Text(
-                    text = LocalizationState.currentLanguage.nativeName,
-                    color = RedPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
 
-            AnimatedVisibility(visible = showLangSelector) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(260.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    AppLanguage.values().forEach { lang ->
-                        val isSelected = LocalizationState.currentLanguage == lang
+                // Language settings
+                SettingsHeader(title = "Appearance & Language")
+                CyberCard {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showLangSelector = !showLangSelector }
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { 
-                                    LocalizationState.currentLanguage = lang
-                                    showLangSelector = false
-                                }
-                                .padding(vertical = 8.dp, horizontal = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = lang.nativeName, color = if (isSelected) RedPrimary else TextPrimary, fontSize = 13.sp)
-                            if (isSelected) {
-                                Icon(Icons.Default.Check, contentDescription = "Active", tint = RedPrimary, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Translate, contentDescription = null, tint = RedPrimary)
+                            Column {
+                                Text(text = Trans.get("language"), color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(text = "App language overrides system locale.", color = TextSecondary, fontSize = 11.sp)
                             }
                         }
-                        HorizontalDivider(color = TextMuted.copy(alpha = 0.1f), thickness = 0.5.dp)
+                        Text(
+                            text = LocalizationState.currentLanguage.nativeName,
+                            color = RedPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    AnimatedVisibility(visible = showLangSelector) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(260.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            AppLanguage.values().forEach { lang ->
+                                val isSelected = LocalizationState.currentLanguage == lang
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            LocalizationState.currentLanguage = lang
+                                            showLangSelector = false
+                                        }
+                                        .padding(vertical = 8.dp, horizontal = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(text = lang.nativeName, color = if (isSelected) RedPrimary else TextPrimary, fontSize = 13.sp)
+                                    if (isSelected) {
+                                        Icon(Icons.Default.Check, contentDescription = "Active", tint = RedPrimary, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                HorizontalDivider(color = TextMuted.copy(alpha = 0.1f), thickness = 0.5.dp)
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        // Admin API Config
-        SettingsHeader(title = "Admin API Configuration")
-        CyberCard {
-            var tempAdminToken by remember { mutableStateOf(RedShiftState.apiAdminToken) }
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = tempAdminToken,
-                    onValueChange = { tempAdminToken = it },
-                    placeholder = { Text("Enter admin API token...") },
-                    colors = outlinedTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                CyberButton(
-                    text = "Set Admin Token",
-                    onClick = {
-                        RedShiftState.apiAdminToken = tempAdminToken
-                        Toast.makeText(context, "Admin token updated", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        // About section
-        SettingsHeader(title = "System Info & Licenses")
-        CyberCard {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Brush.horizontalGradient(listOf(RedPrimary, RedGradientEnd))),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("RS", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Column {
-                    Text("RedShift VPN Client", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text("Version 1.0.0 • Powered by RedPill Cloud", color = TextSecondary, fontSize = 12.sp)
-                }
-            }
-
-            HorizontalDivider(color = TextMuted.copy(alpha = 0.2f), thickness = 0.5.dp)
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { 
-                        Toast.makeText(context, "System Updated!", Toast.LENGTH_SHORT).show()
+                // Admin API Config
+                SettingsHeader(title = "Admin API Configuration")
+                CyberCard {
+                    var tempAdminToken by remember { mutableStateOf(RedShiftState.apiAdminToken) }
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = tempAdminToken,
+                            onValueChange = { tempAdminToken = it },
+                            placeholder = { Text("Enter admin API token...") },
+                            colors = outlinedTextFieldColors(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        CyberButton(
+                            text = "Set Admin Token",
+                            onClick = {
+                                RedShiftState.apiAdminToken = tempAdminToken
+                                Toast.makeText(context, "Admin token updated", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = Trans.get("check_updates"), color = TextPrimary, fontSize = 14.sp)
-                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextMuted)
+                }
+
+                // About section
+                SettingsHeader(title = "System Info & Licenses")
+                CyberCard {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Brush.horizontalGradient(listOf(RedPrimary, RedGradientEnd))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("RS", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Column {
+                            Text("RedShift VPN Client", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Version 1.0.0 • Powered by RedPill Cloud", color = TextSecondary, fontSize = 12.sp)
+                        }
+                    }
+                }
             }
         }
     }

@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -281,75 +282,53 @@ object RedShiftState {
     }
 
     fun toggleVpn() {
-        val ctx = appContext ?: return
+        Log.e("RedShiftVPN", "toggleVpn() called, state=$connectionState")
+        val ctx = appContext
+        if (ctx == null) {
+            Log.e("RedShiftVPN", "appContext is null")
+            return
+        }
         when (connectionState) {
             ConnectionState.DISCONNECTED -> {
                 connectionState = ConnectionState.CONNECTING
+                Log.e("RedShiftVPN", "Starting VPN connect sequence")
 
                 scope.launch {
+                    Log.e("RedShiftVPN", "Coroutine launched")
                     val server = getSelectedServer()
+                    Log.e("RedShiftVPN", "getSelectedServer returned: ${server?.name ?: "null"}")
                     val useLocalProxy = server != null
+                    Log.e("RedShiftVPN", "useLocalProxy=$useLocalProxy")
 
                     if (useLocalProxy) {
-                        val subServer = server!!.let {
-                            SubServer(
-                                id = it.id,
-                                name = it.name,
-                                protocol = it.protocol,
-                                address = it.address,
-                                port = it.port,
-                                flag = it.flag,
-                                uuid = it.subUuid,
-                                password = it.subPassword,
-                                flow = it.subFlow,
-                                encryption = it.subEncryption,
-                                network = it.subNetwork,
-                                tls = it.subTls,
-                                sni = it.subSni,
-                                publicKey = it.subPublicKey,
-                                shortId = it.subShortId,
-                                fingerprint = it.subFingerprint
-                            )
-                        }
-                        val config = SingBoxConfigGenerator().generateConfig(subServer)
-
-                        val manager = singBoxManager ?: return@launch
-                        val binaryOk = manager.ensureBinary()
-                        if (!binaryOk) {
-                            connectionState = ConnectionState.DISCONNECTED
-                            importError = "Failed to extract sing-box binary"
-                            return@launch
-                        }
-
-                        val started = manager.start(config)
-                        if (!started) {
-                            connectionState = ConnectionState.DISCONNECTED
-                            importError = "Failed to start sing-box"
-                            return@launch
-                        }
+                        Log.e("RedShiftVPN", "sing-box binary cannot run on Android 10+ (noexec), skipping. Will use remote proxy.")
                     }
 
-                    if (!useLocalProxy) {
-                        val proxy = apiClient.getProxy()
-                        remoteHost = proxy?.host ?: "216.57.106.89"
-                        remotePort = proxy?.port ?: 995
-                    }
+                    Log.e("RedShiftVPN", "Calling getProxy()...")
+                    val proxy = apiClient.getProxy()
+                    Log.e("RedShiftVPN", "getProxy returned: ${proxy?.host ?: "null"}:${proxy?.port ?: "null"} login='${proxy?.socksLogin ?: ""}'")
+                    remoteHost = proxy?.host ?: "216.57.106.89"
+                    remotePort = proxy?.port ?: 995
+                    Log.e("RedShiftVPN", "Using remote proxy: $remoteHost:$remotePort")
 
                     val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
                         action = RedShiftVpnService.ACTION_CONNECT
-                        putExtra(RedShiftVpnService.EXTRA_USE_LOCAL_PROXY, useLocalProxy)
-                        if (!useLocalProxy) {
-                            putExtra(RedShiftVpnService.EXTRA_HOST, remoteHost)
-                            putExtra(RedShiftVpnService.EXTRA_PORT, remotePort)
-                        }
+                        putExtra(RedShiftVpnService.EXTRA_USE_LOCAL_PROXY, false)
+                        putExtra(RedShiftVpnService.EXTRA_HOST, remoteHost)
+                        putExtra(RedShiftVpnService.EXTRA_PORT, remotePort)
+                        putExtra(RedShiftVpnService.EXTRA_SOCKS_LOGIN, proxy?.socksLogin ?: "")
+                        putExtra(RedShiftVpnService.EXTRA_SOCKS_PASSWORD, proxy?.socksPassword ?: "")
                     }
 
                     try {
-                        ctx.startForegroundService(intent)
+                        Log.e("RedShiftVPN", "Starting VPN service with action=${intent.action}")
+                        ctx.startService(intent)
+                        Log.e("RedShiftVPN", "VPN service started, connectionState=CONNECTED")
                         startTelemetrySimulation()
                         delay(3000)
                         connectionState = ConnectionState.CONNECTED
                     } catch (e: Exception) {
+                        Log.e("RedShiftVPN", "Failed to start VPN: ${e.message}", e)
                         connectionState = ConnectionState.DISCONNECTED
                         singBoxManager?.stop()
                     }

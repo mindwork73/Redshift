@@ -239,7 +239,7 @@ fun PulsingConnectionRing(
     }
 
     Box(
-        modifier = modifier.size(160.dp),
+        modifier = modifier.size(160.dp).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         // Outer pulsing ring (only when connected or disconnected)
@@ -289,8 +289,7 @@ fun PulsingConnectionRing(
                         colors = listOf(CyberElevated, CyberBackground)
                     )
                 )
-                .border(2.dp, color, CircleShape)
-                .clickable(onClick = onClick),
+                .border(2.dp, color, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             // Internal neon visual effect

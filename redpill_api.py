@@ -225,3 +225,31 @@ def list_servers():
         cur.execute("SELECT * FROM vpn_servers WHERE is_enabled = 1")
         servers = [row_to_dict(r) for r in cur.fetchall()]
     return {"servers": servers}
+
+
+@app.get("/api/v1/proxy")
+def get_proxy(user_id: Optional[int] = Query(None)):
+    socks_login = ""
+    socks_password = ""
+    if user_id:
+        with db_cursor() as (_, cur):
+            cur.execute(
+                "SELECT login, password FROM socks_proxy_access WHERE user_id = ?",
+                (user_id,)
+            )
+            row = cur.fetchone()
+            if row:
+                socks_login, socks_password = row
+    if not socks_login or not socks_password:
+        with db_cursor() as (_, cur):
+            cur.execute("SELECT login, password FROM socks_proxy_access LIMIT 1")
+            row = cur.fetchone()
+            if row:
+                socks_login, socks_password = row
+    return {
+        "host": "216.57.106.89",
+        "port": 995,
+        "protocol": "socks5",
+        "socks_login": socks_login,
+        "socks_password": socks_password
+    }

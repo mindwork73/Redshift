@@ -68,7 +68,9 @@ class RedPillApiClient(
     data class ProxyConfig(
         val host: String,
         val port: Int,
-        val protocol: String
+        val protocol: String,
+        val socksLogin: String = "",
+        val socksPassword: String = ""
     )
 
     suspend fun ping(): Boolean = withContext(Dispatchers.IO) {
@@ -79,16 +81,19 @@ class RedPillApiClient(
         } catch (_: Exception) { false }
     }
 
-    suspend fun getProxy(): ProxyConfig? = withContext(Dispatchers.IO) {
+    suspend fun getProxy(userId: Int? = null): ProxyConfig? = withContext(Dispatchers.IO) {
         try {
-            val req = Request.Builder().url("$baseUrl/api/v1/proxy").build()
+            val url = if (userId != null) "$baseUrl/api/v1/proxy?user_id=$userId" else "$baseUrl/api/v1/proxy"
+            val req = Request.Builder().url(url).build()
             val resp = client.newCall(req).execute()
             if (!resp.isSuccessful) return@withContext null
             val json = JSONObject(resp.body!!.string())
             ProxyConfig(
                 host = json.getString("host"),
                 port = json.getInt("port"),
-                protocol = json.getString("protocol")
+                protocol = json.getString("protocol"),
+                socksLogin = json.optString("socks_login", ""),
+                socksPassword = json.optString("socks_password", "")
             )
         } catch (_: Exception) { null }
     }

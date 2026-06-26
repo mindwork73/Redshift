@@ -82,6 +82,8 @@ class SingBoxManager(private val context: Context) {
 
         try {
             val dataDir = context.getDir("singbox", Context.MODE_PRIVATE).absolutePath + "/data"
+            File(dataDir).mkdirs()
+
             val pb = ProcessBuilder(
                 binaryPath, "run",
                 "-c", configPath,
@@ -92,10 +94,22 @@ class SingBoxManager(private val context: Context) {
             pb.redirectErrorStream(true)
 
             process = pb.start()
+
+            val reader = java.io.BufferedReader(java.io.InputStreamReader(process!!.inputStream))
+            val firstLines = mutableListOf<String>()
+            for (i in 0 until 5) {
+                val line = reader.readLine() ?: break
+                firstLines.add(line)
+            }
+            android.util.Log.e("SingBoxManager", "sing-box output: ${firstLines.joinToString(" | ")}")
+
             startMonitor()
 
-            return process?.isAlive == true
+            val alive = process?.isAlive == true
+            android.util.Log.e("SingBoxManager", "sing-box alive=$alive, binary=$binaryPath")
+            return alive
         } catch (e: Exception) {
+            android.util.Log.e("SingBoxManager", "start failed: ${e.message}", e)
             process = null
             return false
         }

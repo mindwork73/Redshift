@@ -4,25 +4,29 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
-import com.example.MainActivity
-import com.example.R
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
+import android.util.Log
 import kotlinx.coroutines.*
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.Socket
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 
 class RedShiftVpnService : VpnService() {
 
     private var tunFd: ParcelFileDescriptor? = null
-    private var tunOut: FileOutputStream? = null
+    private var tunOut: ParcelFileDescriptor.AutoCloseOutputStream? = null
     private var vpnJob: Job? = null
     @Volatile
     private var vpnRunning = false
@@ -31,6 +35,8 @@ class RedShiftVpnService : VpnService() {
     private val activeTunnels = ConcurrentHashMap<ConnectionKey, TcpTunnel>()
     private var remoteHost = "216.57.106.89"
     private var remotePort = 995
+    private var socksLogin = ""
+    private var socksPassword = ""
 
     private var nextConnectionId = 0
 
@@ -41,18 +47,14 @@ class RedShiftVpnService : VpnService() {
         const val EXTRA_PORT = "extra_port"
         const val EXTRA_PROTOCOL = "extra_protocol"
         const val EXTRA_USE_LOCAL_PROXY = "extra_use_local_proxy"
+        const val EXTRA_SOCKS_LOGIN = "extra_socks_login"
+        const val EXTRA_SOCKS_PASSWORD = "extra_socks_password"
 
         private const val VPN_MTU = 1500
-        private const val NOTIFICATION_ID = 1
-        private const val CHANNEL_ID = "redshift_vpn"
-    }
-
-    override fun onCreate() {
-        super.onCreate()
-        createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.e("RedShiftVPN", "onStartCommand: action=${intent?.action}, useLocal=${intent?.getBooleanExtra(EXTRA_USE_LOCAL_PROXY, false)}")
         when (intent?.action) {
             ACTION_CONNECT -> {
                 val useLocal = intent.getBooleanExtra(EXTRA_USE_LOCAL_PROXY, false)
@@ -62,21 +64,29 @@ class RedShiftVpnService : VpnService() {
                 } else {
                     remoteHost = intent.getStringExtra(EXTRA_HOST) ?: remoteHost
                     remotePort = intent.getIntExtra(EXTRA_PORT, remotePort)
+                    socksLogin = intent.getStringExtra(EXTRA_SOCKS_LOGIN) ?: ""
+                    socksPassword = intent.getStringExtra(EXTRA_SOCKS_PASSWORD) ?: ""
                 }
+                Log.e("RedShiftVPN", "Connecting to $remoteHost:$remotePort socksLogin='$socksLogin'")
                 connectVpn()
             }
-            ACTION_DISCONNECT -> disconnectVpn()
+            ACTION_DISCONNECT -> {
+                disconnectVpn()
+                stopSelf()
+            }
         }
         return START_STICKY
     }
 
     override fun onRevoke() {
         disconnectVpn()
+        stopSelf()
         super.onRevoke()
     }
 
     override fun onDestroy() {
         disconnectVpn()
+        stopSelf()
         super.onDestroy()
     }
 
@@ -97,30 +107,21 @@ class RedShiftVpnService : VpnService() {
             builder.setMetered(false)
         }
 
-        tunFd = builder.establish() ?: return
-        tunOut = FileOutputStream(tunFd?.fileDescriptor)
-
-        val startIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        Log.e("RedShiftVPN", "Calling builder.establish()...")
+        tunFd = builder.establish()
+        if (tunFd == null) {
+            Log.e("RedShiftVPN", "builder.establish() returned null — VPN not prepared?")
+            stopSelf()
+            return
         }
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, startIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("RedShift VPN")
-            .setContentText("Connected — securing your traffic")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .build()
-
-        startForeground(NOTIFICATION_ID, notification)
+        Log.e("RedShiftVPN", "TUN interface established")
+        tunOut = ParcelFileDescriptor.AutoCloseOutputStream(tunFd)
 
         vpnRunning = true
+        val fd = tunFd!!
         vpnJob = scope.launch {
-            runVpnLoop()
+            Log.e("RedShiftVPN", "VPN loop started, fd.valid=${fd.fileDescriptor.valid()}")
+            runVpnLoop(fd)
         }
     }
 
@@ -136,44 +137,67 @@ class RedShiftVpnService : VpnService() {
         tunOut = null
         tunFd?.close()
         tunFd = null
-
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-
-        val disconnectIntent = Intent("com.example.VPN_DISCONNECTED")
-        sendBroadcast(disconnectIntent)
     }
 
-    private fun runVpnLoop() {
-        val input = FileInputStream(tunFd?.fileDescriptor)
+    private fun runVpnLoop(tunFdLocal: ParcelFileDescriptor) {
+        Log.e("RedShiftVPN", "VPN loop: fd.valid=${tunFdLocal.fileDescriptor.valid()}")
         val buffer = ByteArray(VPN_MTU)
+        var packetCount = 0
+        var lastLogTime = System.currentTimeMillis()
 
-        try {
-            while (vpnRunning) {
-                val bytesRead = input.read(buffer)
-                if (bytesRead <= 0) break
-
+        while (vpnRunning) {
+            try {
+                val bytesRead = Os.read(tunFdLocal.fileDescriptor, buffer, 0, buffer.size)
+                if (bytesRead <= 0) {
+                    Thread.sleep(50)
+                    continue
+                }
+                packetCount++
+                val now = System.currentTimeMillis()
+                if (now - lastLogTime > 2000) {
+                    Log.e("RedShiftVPN", "VPN loop: read $packetCount packets so far, last $bytesRead bytes")
+                    lastLogTime = now
+                }
                 processPacket(buffer, bytesRead)
+            } catch (e: ErrnoException) {
+                if (e.errno != OsConstants.EAGAIN) {
+                    Log.e("RedShiftVPN", "VPN loop fatal errno: ${e.errno} ${e.message}")
+                    break
+                }
+                Thread.sleep(50)
+            } catch (e: Exception) {
+                Log.e("RedShiftVPN", "VPN loop exception: ${e::class.simpleName}: ${e.message}")
+                break
             }
-        } catch (e: Exception) {
-            if (vpnRunning) disconnectVpn()
         }
+        Log.e("RedShiftVPN", "VPN loop exited, packetCount=$packetCount, vpnRunning=$vpnRunning")
     }
 
     private fun processPacket(data: ByteArray, length: Int) {
         if (length < 20) return
 
         val version = data[0].toInt() shr 4 and 0x0F
-        if (version != 4) return
+        if (version != 4) {
+            return
+        }
 
         val ihl = (data[0].toInt() and 0x0F) * 4
         if (ihl < 20 || ihl > length) return
 
         val protocol = data[9].toInt() and 0xFF
+        val srcIpInt = ByteBuffer.wrap(data, 12, 4).int
+        val dstIpInt = ByteBuffer.wrap(data, 16, 4).int
+        val dstIpStr = "${dstIpInt shr 24 and 0xFF}.${dstIpInt shr 16 and 0xFF}.${dstIpInt shr 8 and 0xFF}.${dstIpInt and 0xFF}"
+
+        Log.e("RedShiftVPN", "Packet proto=$protocol dst=$dstIpStr len=$length")
 
         when (protocol) {
             6 -> handleTcpPacket(data, length, ihl)
-            17 -> handleUdpPacket(data, length, ihl)
+            17 -> {
+                val dstPort = (data[ihl + 2].toInt() and 0xFF) shl 8 or (data[ihl + 3].toInt() and 0xFF)
+                Log.e("RedShiftVPN", "UDP dst=$dstIpStr:$dstPort len=$length")
+                handleUdpPacket(data, length, ihl)
+            }
         }
     }
 
@@ -208,7 +232,12 @@ class RedShiftVpnService : VpnService() {
 
         val isLocal = dstIp and 0xFF000000.toInt() == 0x0A000000.toInt()
 
-        if (syn && !ack && !isLocal) {
+        val proxyIpInt = ipStringToInt(remoteHost)
+        val isProxyTraffic = dstIp == proxyIpInt && dstPort == remotePort
+
+        if (syn && !ack && !isLocal && !isProxyTraffic) {
+            val dstStr = "${dstIp shr 24 and 0xFF}.${dstIp shr 16 and 0xFF}.${dstIp shr 8 and 0xFF}.${dstIp and 0xFF}"
+            Log.e("RedShiftVPN", "TCP SYN from $srcPort to $dstStr:$dstPort, creating tunnel")
             val tunnel = TcpTunnel(
                 connectionId = nextConnectionId++,
                 srcIp = srcIp,
@@ -218,8 +247,36 @@ class RedShiftVpnService : VpnService() {
                 seqNum = seqNum,
                 ackNum = ackNum,
                 tunOutput = tunOut!!,
-                protectSocket = { protect(it) },
-                onClose = { activeTunnels.remove(key) }
+                protectSocket = { socket ->
+                    val ok = protect(socket)
+                    Log.e("RedShiftVPN", "protect(socket) returned $ok for tunnel")
+                    if (!ok) {
+                        try {
+                            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                            val physicalNetwork = cm.activeNetwork?.let { active ->
+                                val caps = cm.getNetworkCapabilities(active)
+                                if (caps != null && !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) active
+                                else null
+                            } ?: cm.allNetworks.firstOrNull { net ->
+                                val caps = cm.getNetworkCapabilities(net)
+                                caps != null
+                                    && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                                    && !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+                            }
+                            if (physicalNetwork != null) {
+                                physicalNetwork.bindSocket(socket)
+                                Log.e("RedShiftVPN", "Physical network bindSocket() succeeded")
+                            } else {
+                                Log.e("RedShiftVPN", "No physical network found, cannot bind socket")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("RedShiftVPN", "Network.bindSocket() failed: ${e.message}")
+                        }
+                    }
+                },
+                onClose = { activeTunnels.remove(key) },
+                socksLogin = socksLogin,
+                socksPassword = socksPassword
             )
 
             scope.launch {
@@ -227,6 +284,10 @@ class RedShiftVpnService : VpnService() {
             }
 
             activeTunnels[key] = tunnel
+            return
+        }
+
+        if (isProxyTraffic) {
             return
         }
 
@@ -363,8 +424,24 @@ class RedShiftVpnService : VpnService() {
     }
 
     private fun protectDatagramSocket(socket: DatagramSocket) {
-        if (Build.VERSION.SDK_INT >= 33) {
-            protect(socket)
+        val ok = protect(socket)
+        if (!ok) {
+            try {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                val physicalNetwork = cm.activeNetwork?.let { active ->
+                    val caps = cm.getNetworkCapabilities(active)
+                    if (caps != null && !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) active
+                    else null
+                } ?: cm.allNetworks.firstOrNull { net ->
+                    val caps = cm.getNetworkCapabilities(net)
+                    caps != null
+                        && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        && !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+                }
+                if (physicalNetwork != null) {
+                    physicalNetwork.bindSocket(socket)
+                }
+            } catch (_: Exception) {}
         }
     }
 
@@ -375,13 +452,9 @@ class RedShiftVpnService : VpnService() {
         } catch (_: Exception) {}
     }
 
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "RedShift VPN Status",
-            NotificationManager.IMPORTANCE_LOW
-        )
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
+    private fun ipStringToInt(ip: String): Int {
+        val parts = ip.split(".")
+        if (parts.size != 4) return 0
+        return (parts[0].toInt() shl 24) or (parts[1].toInt() shl 16) or (parts[2].toInt() shl 8) or parts[3].toInt()
     }
 }

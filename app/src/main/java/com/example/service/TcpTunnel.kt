@@ -1,5 +1,6 @@
 package com.example.service
 
+import android.util.Log
 import kotlinx.coroutines.*
 import java.io.InputStream
 import java.io.OutputStream
@@ -17,14 +18,14 @@ class TcpTunnel(
     private val ackNum: Int,
     private val tunOutput: java.io.FileOutputStream,
     private val protectSocket: (Socket) -> Unit,
-    private val onClose: () -> Unit
+    private val onClose: () -> Unit,
+    private val socksLogin: String = "",
+    private val socksPassword: String = ""
 ) {
     private var remoteSocket: Socket? = null
     private var remoteOut: OutputStream? = null
     private var remoteIn: InputStream? = null
 
-    private var tunSeqNum = seqNum + 1
-    private var tunAckNum = ackNum
     private var remoteSeqNum = 0
     private var remoteAckNum = seqNum + 1
 
@@ -36,11 +37,20 @@ class TcpTunnel(
 
     suspend fun connectToRemoteProxy(proxyHost: String, proxyPort: Int, writer: (ByteArray) -> Unit) {
         if (closed) return
+        val dstStr = "${dstIp shr 24 and 0xFF}.${dstIp shr 16 and 0xFF}.${dstIp shr 8 and 0xFF}.${dstIp and 0xFF}"
 
         try {
+            Log.e("RedShiftVPN", "Tunnel[$connectionId] connecting to proxy $proxyHost:$proxyPort for $dstStr:$dstPort")
             val socket = Socket()
-            protectSocket(socket)
+            try {
+                Log.e("RedShiftVPN", "Tunnel[$connectionId] calling protect(socket)...")
+                protectSocket(socket)
+                Log.e("RedShiftVPN", "Tunnel[$connectionId] protect() called OK")
+            } catch (e: Exception) {
+                Log.e("RedShiftVPN", "Tunnel[$connectionId] protect() threw: ${e.message}")
+            }
             socket.connect(InetSocketAddress(proxyHost, proxyPort), 5000)
+            Log.e("RedShiftVPN", "Tunnel[$connectionId] connected to proxy, localAddr=${socket.localAddress}")
             socket.soTimeout = 30000
             socket.tcpNoDelay = true
 
@@ -48,8 +58,10 @@ class TcpTunnel(
             remoteOut = socket.getOutputStream()
             remoteIn = socket.getInputStream()
 
+            Log.e("RedShiftVPN", "Tunnel[$connectionId] connected to proxy, performing SOCKS5 handshake for $dstStr:$dstPort")
             performSocks5Handshake(dstIp, dstPort)
             connected = true
+            Log.e("RedShiftVPN", "Tunnel[$connectionId] SOCKS5 handshake OK for $dstStr:$dstPort")
 
             sendSynAckToTun(writer)
 
@@ -57,6 +69,7 @@ class TcpTunnel(
                 readFromRemote(writer)
             }
         } catch (e: Exception) {
+            Log.e("RedShiftVPN", "Tunnel[$connectionId] proxy error: ${e.message}")
             close()
         }
     }
@@ -65,12 +78,33 @@ class TcpTunnel(
         val out = remoteOut ?: return
         val inp = remoteIn ?: return
 
-        out.write(byteArrayOf(0x05, 0x01, 0x00))
+        val useAuth = socksLogin.isNotEmpty() && socksPassword.isNotEmpty()
+        val nMethods = if (useAuth) 2 else 1
+        out.write(byteArrayOf(0x05, nMethods.toByte(), 0x00, 0x02))
         out.flush()
 
         val resp = ByteArray(2)
         readFully(inp, resp)
-        if (resp[1] != 0x00.toByte()) throw Exception("SOCKS5 auth failed")
+        when (resp[1]) {
+            0x00.toByte() -> {}
+            0x02.toByte() -> {
+                val loginBytes = socksLogin.toByteArray()
+                val passBytes = socksPassword.toByteArray()
+                val authReq = ByteArray(3 + loginBytes.size + passBytes.size).apply {
+                    this[0] = 0x01
+                    this[1] = loginBytes.size.toByte()
+                    System.arraycopy(loginBytes, 0, this, 2, loginBytes.size)
+                    this[2 + loginBytes.size] = passBytes.size.toByte()
+                    System.arraycopy(passBytes, 0, this, 3 + loginBytes.size, passBytes.size)
+                }
+                out.write(authReq)
+                out.flush()
+                val authResp = ByteArray(2)
+                readFully(inp, authResp)
+                if (authResp[1] != 0x00.toByte()) throw Exception("SOCKS5 userpass auth failed")
+            }
+            else -> throw Exception("SOCKS5 no acceptable auth method: ${resp[1]}")
+        }
 
         val dstBytes = ByteArray(4)
         dstBytes[0] = (targetIp shr 24 and 0xFF).toByte()
@@ -125,6 +159,7 @@ class TcpTunnel(
         try {
             remoteOut?.write(data)
             remoteOut?.flush()
+            remoteAckNum = (remoteAckNum + data.size) and 0x7FFFFFFF
         } catch (_: Exception) {}
     }
 
