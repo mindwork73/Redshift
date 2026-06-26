@@ -115,6 +115,7 @@ object RedShiftState {
     var lastRefreshTime by mutableStateOf(0L)
 
     val servers = mutableStateListOf<Server>()
+    val recentServers = mutableStateListOf<Server>()
     val subscriptions = mutableStateListOf<Subscription>()
     val routingRules = mutableStateListOf<RoutingRule>()
 
@@ -220,32 +221,9 @@ object RedShiftState {
 
     fun resetDefaultData() {
         servers.clear()
-        servers.addAll(listOf(
-            Server("nl_reality", "🇳🇱", "NL • Reality #1", "VLESS+Reality", "nl1.redpillcloud.ru", 6443, 12, 2.4, 10.0),
-            Server("nl_xhttp", "🇳🇱", "NL • XHTTP CDN", "VLESS+XHTTP", "xhttp.redpillcloud.ru", 443, 34, 1.8, 10.0),
-            Server("nl_ss", "🇳🇱", "NL • Shadowsocks", "Shadowsocks 2022", "nl-ss.redpillcloud.ru", 11444, 18, 0.0, 10.0),
-            Server("nl_hysteria", "🇳🇱", "NL • Hysteria2", "Hysteria 2", "nl-hy.redpillcloud.ru", 2443, 156, 5.2, 10.0),
-            Server("eu_tls", "🇪🇺", "EU • TLS", "VLESS+TLS", "eu1.redpillcloud.ru", 5443, 45, 3.1, 10.0),
-            Server("eu_reality", "🇪🇺", "EU • Reality", "VLESS+Reality", "eu2.redpillcloud.ru", 9443, 38, 0.9, 10.0),
-            Server("eu_trojan", "🇪🇺", "EU • Trojan", "Trojan+TLS", "eu-tr.redpillcloud.ru", 7443, 41, 0.0, 10.0),
-            Server("ru_hysteria", "🇷🇺", "VDSina • Hysteria2", "Hysteria 2", "ru-hy.redpillcloud.ru", 2443, 8, 7.6, 10.0),
-            Server("nl_trust", "🔒", "TrustTunnel • NL", "TrustTunnel", "tt.redpillcloud.ru", 10443, 22, 0.4, 10.0),
-            Server("nl_amnezia", "🔰", "AmneziaWG • NL", "AmneziaWG", "awg.redpillcloud.ru", 15, 15, 0.0, 10.0)
-        ))
-
+        recentServers.clear()
         subscriptions.clear()
-        subscriptions.addAll(listOf(
-            Subscription("sub_main", "RedPill Default Config", "https://redpillcloud.ru/sub/rp_user_948", 10, "OK", "2 hours ago", 23)
-        ))
-
         routingRules.clear()
-        routingRules.addAll(listOf(
-            RoutingRule("rule_1", "Domain Keyword", "google", "Proxy"),
-            RoutingRule("rule_2", "Domain Keyword", "telegram", "Proxy"),
-            RoutingRule("rule_3", "IP CIDR", "10.0.0.0/8", "Direct"),
-            RoutingRule("rule_4", "GeoIP", "CN", "Direct")
-        ))
-
         importError = null
     }
 
@@ -281,6 +259,15 @@ object RedShiftState {
         return servers.find { it.id == selectedServerId }
     }
 
+    fun markServerUsed(serverId: String) {
+        val server = servers.find { it.id == serverId } ?: return
+        recentServers.removeAll { it.id == serverId }
+        recentServers.add(0, server)
+        if (recentServers.size > 5) {
+            recentServers.removeAt(recentServers.lastIndex)
+        }
+    }
+
     fun toggleVpn() {
         Log.e("RedShiftVPN", "toggleVpn() called, state=$connectionState")
         val ctx = appContext
@@ -296,6 +283,7 @@ object RedShiftState {
                 scope.launch {
                     Log.e("RedShiftVPN", "Coroutine launched")
                     val server = getSelectedServer()
+                    if (server != null) markServerUsed(server.id)
                     Log.e("RedShiftVPN", "getSelectedServer returned: ${server?.name ?: "null"}")
                     val useLocalProxy = server != null
                     Log.e("RedShiftVPN", "useLocalProxy=$useLocalProxy")

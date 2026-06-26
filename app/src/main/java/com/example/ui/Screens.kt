@@ -839,6 +839,29 @@ fun QuickCapsule(
 
 @Composable
 fun RecentServersBentoCard() {
+    val loggedIn = RedShiftState.isLoggedIn || RedShiftState.subscriptionUrl.isNotBlank()
+    val hasServers = RedShiftState.servers.isNotEmpty()
+    val hasRecent = RedShiftState.recentServers.isNotEmpty()
+
+    if (!loggedIn && !hasServers) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(CyberCard.copy(alpha = 0.5f))
+                .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
+                .padding(20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("🔗", fontSize = 28.sp)
+                Text("Import your subscription to get started", color = TextSecondary, fontSize = 13.sp)
+                Text("Go to Settings → Import Subscription", color = TextMuted, fontSize = 11.sp)
+            }
+        }
+        return
+    }
+
     var expanded by remember { mutableStateOf(false) }
     var pinging by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -853,65 +876,73 @@ fun RecentServersBentoCard() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = Trans.get("recent_servers").uppercase(),
+                text = if (hasRecent) "Recent" else "Servers",
                 color = TextMuted,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(RedPrimary.copy(alpha = 0.15f))
-                        .clickable(enabled = !pinging) {
-                            pinging = true
-                            scope.launch {
-                                try {
-                                    val client = RedPillApiClient()
-                                    RedShiftState.servers.forEachIndexed { index, server ->
-                                        val start = System.currentTimeMillis()
-                                        try {
-                                            val result = client.ping()
-                                            if (result) {
-                                                val elapsed = (System.currentTimeMillis() - start).toInt()
-                                                RedShiftState.servers[index] = server.copy(latency = elapsed)
+            if (hasServers) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(RedPrimary.copy(alpha = 0.15f))
+                            .clickable(enabled = !pinging) {
+                                pinging = true
+                                scope.launch {
+                                    try {
+                                        val client = RedPillApiClient()
+                                        RedShiftState.servers.forEachIndexed { index, server ->
+                                            val start = System.currentTimeMillis()
+                                            try {
+                                                val result = client.ping()
+                                                if (result) {
+                                                    val elapsed = (System.currentTimeMillis() - start).toInt()
+                                                    RedShiftState.servers[index] = server.copy(latency = elapsed)
+                                                }
+                                            } catch (_: Exception) {
+                                                RedShiftState.servers[index] = server.copy(latency = -1)
                                             }
-                                        } catch (_: Exception) {
-                                            RedShiftState.servers[index] = server.copy(latency = -1)
                                         }
-                                    }
-                                } catch (_: Exception) {}
-                                pinging = false
+                                    } catch (_: Exception) {}
+                                    pinging = false
+                                }
                             }
-                        }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = if (pinging) "•••" else "PING",
-                        color = RedPrimary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (pinging) "•••" else "PING",
+                            color = RedPrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    if (hasServers) {
+                        Text(
+                            text = (if (expanded) "▲" else "▼"),
+                            color = RedPrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { expanded = !expanded }
+                        )
+                    }
                 }
-                Text(
-                    text = (if (expanded) "▲" else "▼"),
-                    color = RedPrimary,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable { expanded = !expanded }
-                )
             }
         }
 
-        if (!expanded) {
+        val displayServers = if (hasRecent && !expanded) RedShiftState.recentServers.take(4) else RedShiftState.servers
+
+        if (displayServers.isEmpty()) {
+            Text("No servers yet", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
+        } else if (!expanded) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                RedShiftState.servers.take(4).forEach { server ->
+                displayServers.take(4).forEach { server ->
                     ServerMiniCard(server = server)
                 }
             }
@@ -1048,6 +1079,19 @@ fun ServerMiniCard(server: Server) {
 // SCREEN 2: SERVERS LIST
 @Composable
 fun ServersScreen(onAddServerClick: () -> Unit) {
+    val loggedIn = RedShiftState.isLoggedIn || RedShiftState.subscriptionUrl.isNotBlank()
+
+    if (!loggedIn && RedShiftState.servers.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Default.Link, contentDescription = null, tint = TextMuted, modifier = Modifier.size(64.dp))
+                Text("Import a subscription to see servers", color = TextSecondary, fontSize = 14.sp)
+                Text("Go to Settings → Import Subscription", color = TextMuted, fontSize = 12.sp)
+            }
+        }
+        return
+    }
+
     var searchQuery by remember { mutableStateOf("") }
     var selectedProtocolFilter by remember { mutableStateOf("All") }
 
@@ -1060,7 +1104,7 @@ fun ServersScreen(onAddServerClick: () -> Unit) {
         
         val matchesFilter = when (selectedProtocolFilter) {
             "All" -> true
-            "Favorites" -> server.latency < 25 // Arbitrary mock Favorites logic
+            "Favorites" -> server.latency < 25
             else -> server.protocol.contains(selectedProtocolFilter, ignoreCase = true)
         }
 
@@ -2151,6 +2195,33 @@ fun SettingsScreen() {
                     if (RedShiftState.cachedServerCount > 0) {
                         Text("Cached servers: ${RedShiftState.cachedServerCount}", color = TextSecondary, fontSize = 11.sp)
                     }
+                }
+            }
+        }
+
+        // Import Subscription Section
+        SettingsHeader(title = "Import Subscription")
+        CyberCard {
+            var subUrl by remember { mutableStateOf(RedShiftState.subscriptionUrl) }
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = subUrl,
+                    onValueChange = { subUrl = it },
+                    placeholder = { Text("https://...") },
+                    colors = outlinedTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                CyberButton(
+                    text = if (RedShiftState.isImporting) "Importing..." else "Import",
+                    onClick = { RedShiftState.importSubscription(subUrl) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = subUrl.isNotBlank() && !RedShiftState.isImporting
+                )
+                if (RedShiftState.importError != null) {
+                    Text(text = "Error: ${RedShiftState.importError}", color = ErrorRed, fontSize = 12.sp)
+                }
+                if (RedShiftState.servers.isNotEmpty()) {
+                    Text("${RedShiftState.servers.size} servers loaded", color = SuccessGreen, fontSize = 12.sp)
                 }
             }
         }
