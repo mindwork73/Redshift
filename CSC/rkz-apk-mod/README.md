@@ -148,3 +148,40 @@ uber-apk-signer --apks base-mod.apk --out signed/
 - ✅ Ядро собирается, fd-passing работает (проверено на устройстве)
 - ✅ APK собирается, ставится обновлением, приложение стартует без крашей
 - ⏳ Проверка скорости основного режима после включения VPN пользователем
+
+## Найденная и исправленная причина медленной работы
+
+**Во всех сборках fd-passing реально не срабатывал** — включался тихий mixed-SOCKS
+fallback (это и есть «тормоза» + утечка UDP/DNS).
+
+Корень — гонка в `RedShiftState.toggleVpn` (`ui/Models.kt`):
+- сервис `connectTunOnly()` публикует fd в `Companion.tunFdRaw` **только после**
+  `VpnService.Builder.establish()`;
+- на vivo `establish()` занимает ~10 секунд;
+- поллер ждал ровно `1..40 × 250ms = 10с` и сдавался на миллисекунду раньше,
+  чем fd появлялся → `TUN fd=-1 after wait` → fallback.
+
+Лог устройства (до фикса):
+```
+TUN fd passing for all protocols
+TUN fd=-1 after wait
+AWG TUN established, raw fd=140   <- fd готов, но поллер уже ушёл в fallback
+TUN fd not available, falling back to mixed SOCKS
+```
+
+### Исправление А (быстрое, smali)
+
+Увеличен верхний предел цикла опроса в `RedShiftState$toggleVpn$1.smali`:
+`const/16 v9, 0x29` (41 итерация ≈ 10с) → `const/16 v9, 0xb4` (180 итераций ≈ 45с).
+Собрано хирургически (только `classes4`+`classes5`, остальные dex нетронуты) →
+`base-mod4.apk` (лежит в Download/rkz-mod4.apk для ручной установки).
+
+### Исправление Б (правильное, Kotlin-исходник)
+
+В `ui/Models.kt` `toggleVpn()`:
+- цикл опроса `1..40` → `1..160` (40с) — устраняет гонку навсегда;
+- оба пути отказа (fd не пришёл ИЛИ ядро не стартовало на fd) переведены в
+  **fail-close**: остановка ядра + `ACTION_DISCONNECT` + состояние `DISCONNECTED`,
+  **без** mixed-SOCKS fallback (иначе утечка UDP/DNS). Соответствует P0 из ревью.
+
+После Б можно отказаться от smali-конвейера и собирать релиз штатным Gradle.
