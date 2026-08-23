@@ -1,0 +1,13 @@
+# Per-app split tunneling for RedShift VPN
+# Location on device: /data/data/com.aistudio.redshift.rkzvpt/files/split_apps.txt
+# Applied when the TUN interface is created (i.e. on every VPN connect).
+#
+# exclude <package>  - this app bypasses the VPN (direct connection)
+# include <package>  - ONLY listed apps go through the VPN, everything else direct
+# Lines starting with # and empty lines are ignored. Unknown lines are skipped.
+# Mixing exclude/include: each line is applied independently (Android semantics).
+#
+# Examples:
+# exclude com.android.chrome
+# include com.facebook.katana
+# include org.telegram.messenger

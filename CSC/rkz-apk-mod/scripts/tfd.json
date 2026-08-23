@@ -1,0 +1,18 @@
+{
+  "log": { "level": "debug" },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": ["10.8.0.2/32"],
+      "auto_route": false,
+      "strict_route": false,
+      "stack": "system",
+      "mtu": 1280,
+      "sniff": true,
+      "sniff_override_destination": true
+    }
+  ],
+  "outbounds": [{ "type": "direct", "tag": "direct" }],
+  "route": { "final": "direct" }
+}
