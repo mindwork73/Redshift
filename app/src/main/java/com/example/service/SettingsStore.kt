@@ -35,6 +35,9 @@ class SettingsStore(private val context: Context) {
         val KEY_CACHED_SERVERS_JSON = stringPreferencesKey("cached_servers_json")
         val KEY_CACHED_SERVERS_COUNT = intPreferencesKey("cached_servers_count")
         val KEY_LAST_REFRESH_TIME = longPreferencesKey("last_refresh_time")
+        val KEY_TARIFF_NAME = stringPreferencesKey("tariff_name")
+        val KEY_SUBSCRIPTION_EXPIRY = stringPreferencesKey("subscription_expiry")
+        val KEY_USER_ID = stringPreferencesKey("user_id")
     }
 
     val startOnBoot: Flow<Boolean> = context.dataStore.data.map { it[KEY_START_ON_BOOT] ?: false }
@@ -43,7 +46,7 @@ class SettingsStore(private val context: Context) {
     val localPort: Flow<Int> = context.dataStore.data.map { it[KEY_LOCAL_PORT] ?: 1080 }
     val allowLan: Flow<Boolean> = context.dataStore.data.map { it[KEY_ALLOW_LAN] ?: false }
     val selectedServerId: Flow<String> = context.dataStore.data.map { it[KEY_SELECTED_SERVER_ID] ?: "nl_reality" }
-    val remoteProxyHost: Flow<String> = context.dataStore.data.map { it[KEY_REMOTE_PROXY_HOST] ?: "216.57.106.89" }
+    val remoteProxyHost: Flow<String> = context.dataStore.data.map { it[KEY_REMOTE_PROXY_HOST] ?: "37.220.84.106" }
     val remoteProxyPort: Flow<Int> = context.dataStore.data.map { it[KEY_REMOTE_PROXY_PORT] ?: 995 }
     val language: Flow<String> = context.dataStore.data.map { it[KEY_LANGUAGE] ?: "EN" }
     val subscriptionUrl: Flow<String> = context.dataStore.data.map { it[KEY_SUBSCRIPTION_URL] ?: "" }
@@ -53,6 +56,9 @@ class SettingsStore(private val context: Context) {
     val cachedServersJson: Flow<String> = context.dataStore.data.map { it[KEY_CACHED_SERVERS_JSON] ?: "" }
     val cachedServersCount: Flow<Int> = context.dataStore.data.map { it[KEY_CACHED_SERVERS_COUNT] ?: 0 }
     val lastRefreshTime: Flow<Long> = context.dataStore.data.map { it[KEY_LAST_REFRESH_TIME] ?: 0L }
+    val tariffName: Flow<String> = context.dataStore.data.map { it[KEY_TARIFF_NAME] ?: "" }
+    val subscriptionExpiry: Flow<String> = context.dataStore.data.map { it[KEY_SUBSCRIPTION_EXPIRY] ?: "" }
+    val userId: Flow<String> = context.dataStore.data.map { it[KEY_USER_ID] ?: "" }
 
     suspend fun setStartOnBoot(value: Boolean) = context.dataStore.edit { it[KEY_START_ON_BOOT] = value }
     suspend fun setKillSwitch(value: Boolean) = context.dataStore.edit { it[KEY_KILL_SWITCH] = value }
@@ -70,6 +76,9 @@ class SettingsStore(private val context: Context) {
     suspend fun setCachedServersJson(value: String) = context.dataStore.edit { it[KEY_CACHED_SERVERS_JSON] = value }
     suspend fun setCachedServersCount(value: Int) = context.dataStore.edit { it[KEY_CACHED_SERVERS_COUNT] = value }
     suspend fun setLastRefreshTime(value: Long) = context.dataStore.edit { it[KEY_LAST_REFRESH_TIME] = value }
+    suspend fun setTariffName(value: String) = context.dataStore.edit { it[KEY_TARIFF_NAME] = value }
+    suspend fun setSubscriptionExpiry(value: String) = context.dataStore.edit { it[KEY_SUBSCRIPTION_EXPIRY] = value }
+    suspend fun setUserId(value: String) = context.dataStore.edit { it[KEY_USER_ID] = value }
 
     fun getBlockingSelectedServerId(): String {
         return runBlocking { selectedServerId.first() }

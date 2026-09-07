@@ -161,6 +161,24 @@ fun LatencyBadge(
     ping: Int,
     modifier: Modifier = Modifier
 ) {
+    if (ping <= 0) {
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(TextMuted.copy(alpha = 0.15f))
+                .border(0.5.dp, TextMuted.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = "—",
+                color = TextSecondary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        return
+    }
+
     val color = when {
         ping <= 50 -> SuccessGreen
         ping <= 150 -> WarningAmber

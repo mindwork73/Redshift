@@ -40,6 +40,13 @@ class SubscriptionRefreshWorker(
                 put("publicKey", server.publicKey)
                 put("shortId", server.shortId)
                 put("fingerprint", server.fingerprint)
+                put("privateKey", server.privateKey)
+                put("presharedKey", server.presharedKey)
+                put("serverPublicKey", server.serverPublicKey)
+                put("localAddress", server.localAddress)
+                put("mtu", server.mtu)
+                put("awgParams", server.awgParams)
+                put("dns", server.dns)
             })
         }
 

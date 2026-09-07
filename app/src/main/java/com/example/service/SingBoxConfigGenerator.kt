@@ -5,68 +5,160 @@ import org.json.JSONObject
 
 class SingBoxConfigGenerator {
 
-    fun generateConfig(server: SubServer, socksPort: Int = 10808): String {
-        val outbound = buildOutbound(server)
-        val config = JSONObject()
+    companion object {
+        const val CLASH_API_PORT = 9090
+        private const val REMOTE_DNS = "https://8.8.8.8/dns-query"
+        private const val LOCAL_DNS = "77.88.8.8"
 
-        config.put("log", JSONObject().apply {
-            put("level", "warn")
-            put("timestamp", true)
-        })
+        val RU_DOMAIN_SUFFIXES = arrayOf(
+            ".ru", ".su", ".xn--p1ai", ".moscow", ".москва",
+            ".yandex", ".ya.ru"
+        )
+    }
 
-        config.put("inbounds", JSONArray().apply {
-            put(JSONObject().apply {
-                put("type", "socks")
-                put("tag", "socks-in")
-                put("listen", "127.0.0.1")
-                put("listen_port", socksPort)
-                put("sniff", true)
-                put("sniff_override_destination", false)
-            })
-            put(JSONObject().apply {
-                put("type", "mixed")
-                put("tag", "mixed-in")
-                put("listen", "127.0.0.1")
-                put("listen_port", socksPort + 1)
-            })
-        })
+    fun generateConfig(server: SubServer, socksPort: Int = 10808, filesDir: String = ""): String {
+        val isAwg = isAmneziaProtocol(server)
+        val outTag = server.id
 
+        val config = baseTunConfig(server)
+        config.put("dns", buildDnsConfig(server, filesDir))
         config.put("outbounds", JSONArray().apply {
-            put(outbound)
+            put(if (isAwg) buildAmneziaWgOutbound(server) else buildOutbound(server))
             put(JSONObject().apply { put("type", "direct"); put("tag", "direct") })
             put(JSONObject().apply { put("type", "block"); put("tag", "block") })
-            put(JSONObject().apply { put("type", "dns"); put("tag", "dns-out") })
         })
+        config.put("route", buildRouteConfig(outTag, filesDir))
+        config.put("experimental", JSONObject().apply {
+            put("clash_api", JSONObject().apply {
+                put("external_controller", "127.0.0.1:$CLASH_API_PORT")
+                put("default_mode", "Rule")
+            })
+        })
+        return config.toString(2)
+    }
 
-        config.put("route", JSONObject().apply {
-            put("rules", JSONArray().apply {
+    fun generateMixedConfig(server: SubServer, socksPort: Int = 10808): String {
+        val config = JSONObject().apply {
+            put("log", logConfig())
+            put("inbounds", JSONArray().apply {
                 put(JSONObject().apply {
-                    put("outbound", "dns-out")
-                    put("protocol", "dns")
-                })
-                put(JSONObject().apply {
-                    put("rule_set", JSONArray().put("geosite-cn"))
-                    put("outbound", "block")
+                    put("type", "mixed")
+                    put("tag", "mixed-in")
+                    put("listen", "127.0.0.1")
+                    put("listen_port", socksPort)
                 })
             })
-            put("final", server.id)
-            put("auto_detect_interface", true)
-        })
-
-        config.put("experimental", JSONObject().apply {
-            put("cache_file", JSONObject().apply { put("enabled", true); put("path", "") })
-        })
-
+            put("outbounds", JSONArray().apply {
+                put(buildOutbound(server))
+                put(JSONObject().apply { put("type", "direct"); put("tag", "direct") })
+            })
+            put("route", JSONObject().apply {
+                put("rules", JSONArray())
+                put("final", server.id)
+            })
+        }
         return config.toString(2)
+    }
+
+    fun isAmneziaProtocol(server: SubServer): Boolean {
+        return server.protocol.uppercase().let {
+            it.contains("AMNEZIA") || it.contains("AWG") || it.contains("WIREGUARD") || it.contains("WG")
+        }
+    }
+
+    private fun logConfig(): JSONObject = JSONObject().apply {
+        put("level", "warn")
+        put("timestamp", true)
+    }
+
+    private fun baseTunConfig(server: SubServer): JSONObject {
+        return JSONObject().apply {
+            put("log", logConfig())
+            put("inbounds", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("type", "tun")
+                    put("tag", "tun-in")
+                    put("address", JSONArray().apply { put("10.8.0.2/32") })
+                    put("auto_route", false)
+                    put("strict_route", false)
+                    put("stack", "system")
+                    put("mtu", 1280)
+                })
+            })
+        }
+    }
+
+    private fun isIpAddress(value: String): Boolean {
+        return value.isNotEmpty() && value[0].isDigit() && value.contains('.')
+    }
+
+    private fun buildDnsConfig(server: SubServer, filesDir: String): JSONObject {
+        return JSONObject().apply {
+            put("servers", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("tag", "remote-dns")
+                    put("type", "https")
+                    put("server", "8.8.8.8")
+                    put("server_port", 443)
+                    put("detour", server.id)
+                })
+            })
+            put("rules", JSONArray())
+            put("final", "remote-dns")
+            put("strategy", "prefer_ipv4")
+        }
+    }
+
+    private fun buildRouteConfig(outboundTag: String, filesDir: String): JSONObject {
+        val geoipPath = if (filesDir.isNotEmpty()) "$filesDir/geoip-ru.srs" else ""
+        return JSONObject().apply {
+            put("rules", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("ip_is_private", true)
+                    put("outbound", "direct")
+                })
+                put(JSONObject().apply {
+                    put("port", JSONArray().apply { put(443) })
+                    put("network", "udp")
+                    put("outbound", "block")
+                })
+                put(JSONObject().apply {
+                    put("domain_suffix", JSONArray().apply { RU_DOMAIN_SUFFIXES.forEach { put(it) } })
+                    put("outbound", "direct")
+                })
+                if (geoipPath.isNotEmpty()) {
+                    put(JSONObject().apply {
+                        put("rule_set", JSONArray().apply { put("geoip-ru") })
+                        put("outbound", "direct")
+                    })
+                }
+            })
+            put("final", outboundTag)
+            // VpnService fd mode: the launcher owns interface addressing and
+            // routing, so we must not auto-detect/monitor netlink (which is banned
+            // for app uids on Android and would make startup fatal).
+            put("auto_detect_interface", false)
+            put("default_domain_resolver", "remote-dns")
+            if (geoipPath.isNotEmpty()) {
+                put("rule_set", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("type", "local")
+                        put("tag", "geoip-ru")
+                        put("path", geoipPath)
+                    })
+                })
+            }
+        }
     }
 
     private fun buildOutbound(server: SubServer): JSONObject {
         val proto = server.protocol.uppercase()
         return when {
+            isAmneziaProtocol(server) -> buildAmneziaWgOutbound(server)
             proto.contains("VLESS") -> buildVlessOutbound(server)
             proto.contains("TROJAN") -> buildTrojanOutbound(server)
-            proto.contains("HYSTERIA") || proto.contains("HY2") || proto == "HYSTERIA 2" -> buildHysteria2Outbound(server)
-            proto.contains("SHADOWSOCKS") || proto.contains("SS") -> buildShadowsocksOutbound(server)
+            proto.contains("HYSTERIA") || proto.contains("HY2") -> buildHysteria2Outbound(server)
+            proto.contains("SHADOWSOCKS") || proto == "SS" -> buildShadowsocksOutbound(server)
             proto.contains("VMESS") -> buildVmessOutbound(server)
             else -> buildVlessOutbound(server)
         }
@@ -79,8 +171,7 @@ class SingBoxConfigGenerator {
             put("server", s.address)
             put("server_port", s.port)
             put("uuid", s.uuid)
-            put("flow", s.flow.ifEmpty { "" })
-            put("packet_encoding", "xudp")
+            if (s.flow.isNotEmpty()) put("flow", s.flow)
         }
 
         if (s.tls || s.protocol.contains("REALITY", true) || s.protocol.contains("TLS", true)) {
@@ -103,14 +194,10 @@ class SingBoxConfigGenerator {
         }
 
         val network = s.network.lowercase()
-        if (network == "xhttp" || network == "ws" || network == "grpc") {
-            val transport = JSONObject().apply { put("type", network) }
+        if (network == "ws" || network == "grpc" || network == "xhttp") {
+            val transport = JSONObject().apply { put("type", if (network == "xhttp") "ws" else network) }
             when (network) {
-                "xhttp" -> {
-                    transport.put("path", "/xh")
-                    transport.put("mode", "stream-up")
-                }
-                "ws" -> {
+                "xhttp", "ws" -> {
                     transport.put("path", "/")
                     transport.put("headers", JSONObject().apply {
                         if (s.sni.isNotEmpty()) put("Host", s.sni)
@@ -164,6 +251,67 @@ class SingBoxConfigGenerator {
             put("server_port", s.port)
             put("method", method)
             put("password", password)
+        }
+    }
+
+    private fun buildAmneziaWgOutbound(s: SubServer): JSONObject {
+        val out = JSONObject().apply {
+            put("type", "wireguard")
+            put("tag", s.id)
+            put("address", JSONArray().apply {
+                put(if (s.localAddress.isNotBlank()) s.localAddress else "10.0.0.2/32")
+            })
+            put("private_key", s.privateKey)
+
+            val peer = JSONObject().apply {
+                put("address", s.address)
+                put("port", s.port)
+                put("public_key", s.serverPublicKey)
+                if (s.presharedKey.isNotBlank()) put("pre_shared_key", s.presharedKey)
+                put("allowed_ips", JSONArray().apply { put("0.0.0.0/0"); put("::/0") })
+                put("persistent_keepalive_interval", 25)
+            }
+            put("peers", JSONArray().apply { put(peer) })
+        }
+
+        if (s.awgParams.isNotBlank()) {
+            try {
+                val p = org.json.JSONObject(s.awgParams)
+                putIntIfPresent(out, "jc", p.optString("jc", ""))
+                putIntIfPresent(out, "jmin", p.optString("jmin", ""))
+                putIntIfPresent(out, "jmax", p.optString("jmax", ""))
+                putIntIfPresent(out, "s1", p.optString("s1", ""))
+                putIntIfPresent(out, "s2", p.optString("s2", ""))
+                putIntIfPresent(out, "s3", p.optString("s3", ""))
+                putIntIfPresent(out, "s4", p.optString("s4", ""))
+                putValueIfPresent(out, "h1", p.optString("h1", ""))
+                putValueIfPresent(out, "h2", p.optString("h2", ""))
+                putValueIfPresent(out, "h3", p.optString("h3", ""))
+                putValueIfPresent(out, "h4", p.optString("h4", ""))
+                putValueIfPresent(out, "i1", p.optString("i1", ""))
+                putValueIfPresent(out, "i2", p.optString("i2", ""))
+                putValueIfPresent(out, "i3", p.optString("i3", ""))
+                putValueIfPresent(out, "i4", p.optString("i4", ""))
+                putValueIfPresent(out, "i5", p.optString("i5", ""))
+            } catch (_: Exception) {}
+        }
+
+        return out
+    }
+
+    private fun putIntIfPresent(json: JSONObject, key: String, value: String) {
+        val v = value.trim()
+        if (v.isNotEmpty()) {
+            try { json.put(key, v.toInt()) } catch (_: Exception) {}
+        }
+    }
+
+    private fun putValueIfPresent(json: JSONObject, key: String, value: String) {
+        val v = value.trim()
+        if (v.isNotEmpty()) {
+            try {
+                if (v.contains("-")) json.put(key, v) else json.put(key, v.toInt())
+            } catch (_: Exception) { json.put(key, v) }
         }
     }
 

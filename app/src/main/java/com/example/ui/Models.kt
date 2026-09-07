@@ -525,10 +525,15 @@ object RedShiftState {
                         var tunFd = -1
                         // Race fix: on some OEMs (vivo) VpnService.Builder.establish() takes
                         // ~10s, so poll up to 40s (was 10s) before giving up on the fd.
-                        for (i in 1..160) {
-                            Thread.sleep(250)
-                            tunFd = RedShiftVpnService.getLastTunFdRaw()
-                            if (tunFd > 0) break
+                        // Must run off the main thread — Thread.sleep here would ANR the UI.
+                        tunFd = withContext(Dispatchers.IO) {
+                            var fd = -1
+                            for (i in 1..160) {
+                                Thread.sleep(250)
+                                fd = RedShiftVpnService.getLastTunFdRaw()
+                                if (fd > 0) break
+                            }
+                            fd
                         }
                         debugLog("TUN fd=$tunFd after wait")
                         if (tunFd > 0) {

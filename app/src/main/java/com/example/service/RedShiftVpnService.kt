@@ -11,6 +11,7 @@ import android.net.Network
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
@@ -27,21 +28,25 @@ class RedShiftVpnService : VpnService() {
 
     private var tunFd: ParcelFileDescriptor? = null
     private var tunOut: ParcelFileDescriptor.AutoCloseOutputStream? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private var vpnJob: Job? = null
     @Volatile
     private var vpnRunning = false
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val activeTunnels = ConcurrentHashMap<ConnectionKey, TcpTunnel>()
-    private var remoteHost = "216.57.106.89"
+    private var remoteHost = "37.220.84.106"
     private var remotePort = 995
     private var socksLogin = ""
     private var socksPassword = ""
+    private var euProxyHost = "217.156.64.40"
+    private var euProxyPort = 10810
 
     private var nextConnectionId = 0
 
     companion object {
         const val ACTION_CONNECT = "com.example.action.CONNECT"
+        const val ACTION_CONNECT_AWG = "com.example.action.CONNECT_AWG"
         const val ACTION_DISCONNECT = "com.example.action.DISCONNECT"
         const val EXTRA_HOST = "extra_host"
         const val EXTRA_PORT = "extra_port"
@@ -50,13 +55,68 @@ class RedShiftVpnService : VpnService() {
         const val EXTRA_SOCKS_LOGIN = "extra_socks_login"
         const val EXTRA_SOCKS_PASSWORD = "extra_socks_password"
 
-        private const val VPN_MTU = 1500
+        const val ROUTE_NL = 0
+        const val ROUTE_DIRECT = 1
+        const val ROUTE_EU = 2
+
+        private const val VPN_MTU = 1280
+
+        @Volatile
+        var tunFdRaw: Int = -1
+            private set
+
+        @Volatile
+        var tunReady: Boolean = false
+            private set
+
+        fun resetTunState() {
+            tunFdRaw = -1
+            tunReady = false
+        }
+
+        fun getLastTunFdRaw(): Int = tunFdRaw
+    }
+
+    private fun debugLogVPN(msg: String) {
+        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+        val line = "$ts [VPN] $msg\n"
+        try {
+            val f = java.io.File(filesDir, "redshift_debug.log")
+            f.appendText(line)
+        } catch (_: Exception) {}
+        Log.e("RedShiftVPN", msg)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        RuCidrs.init(this)
+
         Log.e("RedShiftVPN", "onStartCommand: action=${intent?.action}, useLocal=${intent?.getBooleanExtra(EXTRA_USE_LOCAL_PROXY, false)}")
         when (intent?.action) {
             ACTION_CONNECT -> {
+                val channelId = "redshift_vpn"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val channel = NotificationChannel(channelId, "RedShift VPN", NotificationManager.IMPORTANCE_LOW)
+                    channel.setShowBadge(false)
+                    (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+                }
+                val notification = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    Notification.Builder(this, channelId)
+                } else {
+                    @Suppress("DEPRECATION")
+                    Notification.Builder(this)
+                })
+                    .setContentTitle("RedShift VPN")
+                    .setContentText("VPN active")
+                    .setSmallIcon(android.R.drawable.ic_lock_lock)
+                    .setOngoing(true)
+                    .build()
+                startForeground(1, notification)
+                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RedShift:VPN").apply {
+                    acquire(4 * 60 * 60 * 1000L)
+                }
+                startWakeLockRenewal()
+                registerNetworkCallback()
                 val useLocal = intent.getBooleanExtra(EXTRA_USE_LOCAL_PROXY, false)
                 if (useLocal) {
                     remoteHost = "127.0.0.1"
@@ -70,12 +130,83 @@ class RedShiftVpnService : VpnService() {
                 Log.e("RedShiftVPN", "Connecting to $remoteHost:$remotePort socksLogin='$socksLogin'")
                 connectVpn()
             }
+            ACTION_CONNECT_AWG -> {
+                Log.e("RedShiftVPN", "AWG mode: establishing TUN for fd passing")
+                registerNetworkCallback()
+                connectTunOnly()
+            }
             ACTION_DISCONNECT -> {
                 disconnectVpn()
+                unregisterNetworkCallback()
+                try { wakeLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
+                wakeLock = null
+                stopForeground(true)
                 stopSelf()
             }
         }
         return START_STICKY
+    }
+
+    private var wakeLockRenewalJob: Job? = null
+
+    private fun startWakeLockRenewal() {
+        wakeLockRenewalJob?.cancel()
+        wakeLockRenewalJob = scope.launch {
+            while (isActive) {
+                delay(3 * 60 * 60 * 1000L)
+                if (!vpnRunning && tunFdRaw < 0) break
+                try {
+                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RedShift:VPN").apply {
+                        acquire(4 * 60 * 60 * 1000L)
+                    }
+                    debugLogVPN("wake lock renewed")
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    private fun registerNetworkCallback() {
+        if (networkCallback != null) return
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    debugLogVPN("network available: $network — resetting stale tunnels")
+                    resetAllTunnels()
+                }
+            }
+            cm.registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        } catch (e: Exception) {
+            debugLogVPN("registerNetworkCallback failed: ${e.message}")
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        try {
+            networkCallback?.let {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                cm.unregisterNetworkCallback(it)
+            }
+        } catch (_: Exception) {}
+        networkCallback = null
+    }
+
+    private fun resetAllTunnels() {
+        val tunnels = activeTunnels.values.toList()
+        activeTunnels.clear()
+        for (t in tunnels) {
+            try { t.rstAndClose() } catch (_: Exception) {}
+        }
+        val sockets = udpSockets.values.toList()
+        udpSockets.clear()
+        for (s in sockets) {
+            try { s.close() } catch (_: Exception) {}
+        }
+        dnsCache.clear()
     }
 
     override fun onRevoke() {
@@ -85,6 +216,8 @@ class RedShiftVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        wakeLockRenewalJob?.cancel()
+        unregisterNetworkCallback()
         disconnectVpn()
         stopSelf()
         super.onDestroy()
@@ -107,22 +240,72 @@ class RedShiftVpnService : VpnService() {
             builder.setMetered(false)
         }
 
+        try {
+            builder.addDisallowedApplication(packageName)
+            Log.e("RedShiftVPN", "Excluded self ($packageName) from VPN")
+        } catch (e: Exception) {
+            Log.e("RedShiftVPN", "addDisallowedApplication failed: ${e.message}")
+        }
+
         Log.e("RedShiftVPN", "Calling builder.establish()...")
         tunFd = builder.establish()
         if (tunFd == null) {
-            Log.e("RedShiftVPN", "builder.establish() returned null — VPN not prepared?")
+            debugLogVPN("builder.establish() returned null")
             stopSelf()
             return
         }
-        Log.e("RedShiftVPN", "TUN interface established")
+        debugLogVPN("TUN established, remote=$remoteHost:$remotePort socksLogin='$socksLogin'")
         tunOut = ParcelFileDescriptor.AutoCloseOutputStream(tunFd)
 
         vpnRunning = true
         val fd = tunFd!!
         vpnJob = scope.launch {
-            Log.e("RedShiftVPN", "VPN loop started, fd.valid=${fd.fileDescriptor.valid()}")
+            debugLogVPN("VPN loop starting, fd.valid=${fd.fileDescriptor.valid()}")
             runVpnLoop(fd)
         }
+    }
+
+    private fun connectTunOnly() {
+        disconnectVpn()
+
+        val builder = Builder()
+        builder.setSession("RedShift AWG")
+        builder.setMtu(VPN_MTU)
+
+        builder.addAddress("10.8.0.2", 32)
+        builder.addRoute("0.0.0.0", 0)
+
+        builder.addDnsServer("8.8.8.8")
+        builder.addDnsServer("1.1.1.1")
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            builder.setMetered(false)
+        }
+
+        try {
+            builder.addDisallowedApplication(packageName)
+        } catch (e: Exception) {
+            Log.e("RedShiftVPN", "addDisallowedApplication failed: ${e.message}")
+        }
+
+        tunFd = builder.establish()
+        if (tunFd == null) {
+            debugLogVPN("TUN establish failed for AWG mode")
+            stopSelf()
+            return
+        }
+
+        // establish() returns an fd with FD_CLOEXEC, which would be closed when
+        // the sing-box child process is exec'd from startWithTunFd(), leaving it
+        // to read on a stale descriptor. dup() alone does NOT clear cloexec on
+        // Android, so clear it via the native fcntl shim (not subject to the
+        // hidden-API policy that hides fcntl from Java reflection).
+        val inheritable = tunFd!!.dup()
+        val rawFd = inheritable.detachFd()
+        val cloexecCleared = CloexecNative.clearCloseOnExec(rawFd)
+        tunFdRaw = rawFd
+        tunReady = true
+        debugLogVPN("AWG TUN established, raw fd=$rawFd (cloexec cleared=$cloexecCleared)")
     }
 
     private fun disconnectVpn() {
@@ -137,12 +320,15 @@ class RedShiftVpnService : VpnService() {
         tunOut = null
         tunFd?.close()
         tunFd = null
+
+        if (tunFdRaw > 0) {
+            try { android.os.ParcelFileDescriptor.adoptFd(tunFdRaw).close() } catch (_: Exception) {}
+        }
+        resetTunState()
     }
 
     private fun runVpnLoop(tunFdLocal: ParcelFileDescriptor) {
-        Log.e("RedShiftVPN", "VPN loop: fd.valid=${tunFdLocal.fileDescriptor.valid()}")
         val buffer = ByteArray(VPN_MTU)
-        var packetCount = 0
         var lastLogTime = System.currentTimeMillis()
 
         while (vpnRunning) {
@@ -152,25 +338,24 @@ class RedShiftVpnService : VpnService() {
                     Thread.sleep(50)
                     continue
                 }
-                packetCount++
                 val now = System.currentTimeMillis()
-                if (now - lastLogTime > 2000) {
-                    Log.e("RedShiftVPN", "VPN loop: read $packetCount packets so far, last $bytesRead bytes")
+                if (now - lastLogTime > 30000) {
+                    debugLogVPN("VPN loop alive")
                     lastLogTime = now
                 }
                 processPacket(buffer, bytesRead)
             } catch (e: ErrnoException) {
                 if (e.errno != OsConstants.EAGAIN) {
-                    Log.e("RedShiftVPN", "VPN loop fatal errno: ${e.errno} ${e.message}")
+                    debugLogVPN("VPN loop fatal errno: ${e.errno} ${e.message}")
                     break
                 }
                 Thread.sleep(50)
             } catch (e: Exception) {
-                Log.e("RedShiftVPN", "VPN loop exception: ${e::class.simpleName}: ${e.message}")
+                debugLogVPN("VPN loop exception: ${e::class.simpleName}: ${e.message}")
                 break
             }
         }
-        Log.e("RedShiftVPN", "VPN loop exited, packetCount=$packetCount, vpnRunning=$vpnRunning")
+        debugLogVPN("VPN loop exited, vpnRunning=$vpnRunning")
     }
 
     private fun processPacket(data: ByteArray, length: Int) {
@@ -185,19 +370,10 @@ class RedShiftVpnService : VpnService() {
         if (ihl < 20 || ihl > length) return
 
         val protocol = data[9].toInt() and 0xFF
-        val srcIpInt = ByteBuffer.wrap(data, 12, 4).int
-        val dstIpInt = ByteBuffer.wrap(data, 16, 4).int
-        val dstIpStr = "${dstIpInt shr 24 and 0xFF}.${dstIpInt shr 16 and 0xFF}.${dstIpInt shr 8 and 0xFF}.${dstIpInt and 0xFF}"
-
-        Log.e("RedShiftVPN", "Packet proto=$protocol dst=$dstIpStr len=$length")
 
         when (protocol) {
             6 -> handleTcpPacket(data, length, ihl)
-            17 -> {
-                val dstPort = (data[ihl + 2].toInt() and 0xFF) shl 8 or (data[ihl + 3].toInt() and 0xFF)
-                Log.e("RedShiftVPN", "UDP dst=$dstIpStr:$dstPort len=$length")
-                handleUdpPacket(data, length, ihl)
-            }
+            17 -> handleUdpPacket(data, length, ihl)
         }
     }
 
@@ -235,9 +411,12 @@ class RedShiftVpnService : VpnService() {
         val proxyIpInt = ipStringToInt(remoteHost)
         val isProxyTraffic = dstIp == proxyIpInt && dstPort == remotePort
 
-        if (syn && !ack && !isLocal && !isProxyTraffic) {
-            val dstStr = "${dstIp shr 24 and 0xFF}.${dstIp shr 16 and 0xFF}.${dstIp shr 8 and 0xFF}.${dstIp and 0xFF}"
-            Log.e("RedShiftVPN", "TCP SYN from $srcPort to $dstStr:$dstPort, creating tunnel")
+        val euProxyIpInt = ipStringToInt(euProxyHost)
+        val isEuProxyTraffic = dstIp == euProxyIpInt && dstPort == euProxyPort
+
+        if (syn && !ack && !isLocal && !isProxyTraffic && !isEuProxyTraffic) {
+            val routeMode = getRouteMode(dstIp)
+            val isDirect = routeMode == ROUTE_DIRECT
             val tunnel = TcpTunnel(
                 connectionId = nextConnectionId++,
                 srcIp = srcIp,
@@ -249,7 +428,6 @@ class RedShiftVpnService : VpnService() {
                 tunOutput = tunOut!!,
                 protectSocket = { socket ->
                     val ok = protect(socket)
-                    Log.e("RedShiftVPN", "protect(socket) returned $ok for tunnel")
                     if (!ok) {
                         try {
                             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -265,29 +443,25 @@ class RedShiftVpnService : VpnService() {
                             }
                             if (physicalNetwork != null) {
                                 physicalNetwork.bindSocket(socket)
-                                Log.e("RedShiftVPN", "Physical network bindSocket() succeeded")
-                            } else {
-                                Log.e("RedShiftVPN", "No physical network found, cannot bind socket")
                             }
-                        } catch (e: Exception) {
-                            Log.e("RedShiftVPN", "Network.bindSocket() failed: ${e.message}")
-                        }
+                        } catch (_: Exception) {}
                     }
                 },
                 onClose = { activeTunnels.remove(key) },
                 socksLogin = socksLogin,
-                socksPassword = socksPassword
+                socksPassword = socksPassword,
+                routeMode = routeMode
             )
 
             scope.launch {
-                tunnel.connectToRemoteProxy(remoteHost, remotePort) { writeTunPacket(it) }
+                tunnel.connectToRemoteProxy(remoteHost, remotePort, euProxyHost, euProxyPort) { writeTunPacket(it) }
             }
 
             activeTunnels[key] = tunnel
             return
         }
 
-        if (isProxyTraffic) {
+        if (isProxyTraffic || isEuProxyTraffic) {
             return
         }
 
@@ -307,6 +481,31 @@ class RedShiftVpnService : VpnService() {
         }
     }
 
+    private fun getRouteMode(ip: Int): Int {
+        val a = ip shr 24 and 0xFF
+        if (a == 10 || a == 172 || a == 192 || a == 127) return ROUTE_NL
+
+        if (a in cnFirstOctets) return ROUTE_DIRECT
+
+        if (RuCidrs.contains(ip)) return ROUTE_DIRECT
+
+        return ROUTE_NL
+    }
+
+    private val cnFirstOctets = HashSet<Int>().apply {
+        addAll(listOf(
+            1, 14, 27, 36, 39, 42, 49,
+            58, 59, 60, 61,
+            101, 103, 106,
+            110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126,
+            171, 175, 180, 182, 183,
+            202, 210, 211, 218, 219, 220, 221, 222, 223
+        ))
+    }
+
+    private val udpSockets = java.util.concurrent.ConcurrentHashMap<String, DatagramSocket>()
+    private val dnsCache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<Int>, Long>>()
+
     private fun handleUdpPacket(data: ByteArray, length: Int, ihl: Int) {
         if (length < ihl + 8) return
 
@@ -322,45 +521,149 @@ class RedShiftVpnService : VpnService() {
 
         val payload = data.copyOfRange(payloadOffset, payloadOffset + payloadLen)
 
-        val dnsIp = dstIp and 0xFF000000.toInt() == 0x0A000000.toInt()
-        if (dstPort == 53 && !dnsIp) {
-            scope.launch {
-                forwardDns(srcIp, srcPort, dstIp, dstPort, payload)
+        val isLocal = dstIp and 0xFF000000.toInt() == 0x0A000000.toInt()
+        if (isLocal) return
+
+        if (dstPort == 53) {
+            scope.launch(Dispatchers.IO) {
+                val response = resolveDns(payload)
+                if (response != null) {
+                    val ipPacket = buildUdpResponse(
+                        dstIp = srcIp, dstPort = srcPort,
+                        srcIp = dstIp, srcPort = dstPort,
+                        payload = response
+                    )
+                    writeTunPacket(ipPacket)
+                }
             }
+            return
+        }
+
+        if (dstPort == 443) {
+            // QUIC/HTTP3: drop instantly so apps fall back to TCP instead of timing out
+            return
+        }
+
+        scope.launch(Dispatchers.IO) {
+            forwardUdp(srcIp, srcPort, dstIp, dstPort, payload)
         }
     }
 
-    private suspend fun forwardDns(
+    private fun resolveDns(query: ByteArray): ByteArray? {
+        if (query.size < 17) return null
+
+        val qdcount = ((query[4].toInt() and 0xFF) shl 8) or (query[5].toInt() and 0xFF)
+        if (qdcount == 0) return null
+
+        var pos = 12
+        val labels = mutableListOf<String>()
+        while (pos < query.size) {
+            val len = query[pos].toInt() and 0xFF
+            if (len == 0) { pos++; break }
+            if (len > 63 || pos + len + 1 >= query.size) return null
+            labels.add(String(query, pos + 1, len, Charsets.US_ASCII))
+            pos += 1 + len
+        }
+        if (labels.isEmpty()) return null
+        if (pos + 4 > query.size) return null
+        val qtype = ((query[pos].toInt() and 0xFF) shl 8) or (query[pos + 1].toInt() and 0xFF)
+        val questionEnd = pos + 4
+
+        val host = labels.joinToString(".")
+        val cacheKey = "$host:$qtype"
+        val cached = dnsCache[cacheKey]
+        val ips: List<Int>
+        if (cached != null && System.currentTimeMillis() - cached.second < 60000) {
+            ips = cached.first
+        } else {
+            ips = try {
+                InetAddress.getAllByName(host).mapNotNull { addr ->
+                    val a = addr.address
+                    if (a.size == 4) {
+                        ((a[0].toInt() and 0xFF) shl 24) or ((a[1].toInt() and 0xFF) shl 16) or
+                                ((a[2].toInt() and 0xFF) shl 8) or (a[3].toInt() and 0xFF)
+                    } else null
+                }
+            } catch (_: Exception) { emptyList() }
+            dnsCache[cacheKey] = ips to System.currentTimeMillis()
+            if (dnsCache.size > 512) {
+                dnsCache.entries.removeIf { System.currentTimeMillis() - it.value.second > 120000 }
+            }
+        }
+
+        val rcode = if (ips.isEmpty()) 3 else 0
+
+        val header = ByteArray(12)
+        query.copyInto(header, 0, 0, 12)
+        header[2] = 0x81.toByte()
+        header[3] = (0x80 or rcode).toByte()
+
+        val out = java.io.ByteArrayOutputStream()
+        out.write(header)
+        out.write(query, 12, questionEnd - 12)
+
+        var ancount = 0
+        if (qtype == 1 && ips.isNotEmpty()) {
+            for (ip in ips.take(4)) {
+                val answer = ByteArray(16)
+                answer[0] = 0xC0.toByte(); answer[1] = 0x0C.toByte()
+                answer[2] = 0; answer[3] = 1
+                answer[4] = 0; answer[5] = 1
+                answer[6] = 0; answer[7] = 0; answer[8] = 0; answer[9] = 60
+                answer[10] = 0; answer[11] = 4
+                answer[12] = (ip shr 24).toByte(); answer[13] = (ip shr 16).toByte()
+                answer[14] = (ip shr 8).toByte(); answer[15] = ip.toByte()
+                out.write(answer)
+                ancount++
+            }
+        }
+
+        val bytes = out.toByteArray()
+        bytes[6] = ((ancount shr 8) and 0xFF).toByte()
+        bytes[7] = (ancount and 0xFF).toByte()
+        return bytes
+    }
+
+    private fun forwardUdp(
         srcIp: Int, srcPort: Int,
         dstIp: Int, dstPort: Int,
-        query: ByteArray
-    ) = withContext(Dispatchers.IO) {
+        payload: ByteArray
+    ) {
         try {
-            val dnsServer = InetAddress.getByAddress(
-                byteArrayOf(
-                    (dstIp shr 24).toByte(),
-                    (dstIp shr 16).toByte(),
-                    (dstIp shr 8).toByte(),
-                    dstIp.toByte()
-                )
-            )
-            val socket = DatagramSocket()
-            protectDatagramSocket(socket)
-            socket.soTimeout = 5000
-            val packet = DatagramPacket(query, query.size, dnsServer, dstPort)
+            val key = "$srcPort"
+            if (udpSockets.size > 64) {
+                val it2 = udpSockets.entries.iterator()
+                while (it2.hasNext() && udpSockets.size > 32) {
+                    val e = it2.next()
+                    try { e.value.close() } catch (_: Exception) {}
+                    it2.remove()
+                }
+            }
+            val socket = udpSockets.getOrPut(key) {
+                DatagramSocket().also {
+                    protectDatagramSocket(it)
+                    it.soTimeout = 3000
+                }
+            }
+
+            val dstAddr = ipFromInt(dstIp)
+            val packet = DatagramPacket(payload, payload.size, dstAddr, dstPort)
             socket.send(packet)
 
-            val buf = ByteArray(512)
+            val buf = ByteArray(1500)
             val resp = DatagramPacket(buf, buf.size)
-            socket.receive(resp)
-
-            val ipPacket = buildUdpResponse(
-                dstIp = srcIp, dstPort = srcPort,
-                srcIp = dstIp, srcPort = dstPort,
-                payload = resp.data.copyOfRange(0, resp.length)
-            )
-            writeTunPacket(ipPacket)
-            socket.close()
+            try {
+                socket.receive(resp)
+                val ipPacket = buildUdpResponse(
+                    dstIp = srcIp, dstPort = srcPort,
+                    srcIp = dstIp, srcPort = dstPort,
+                    payload = resp.data.copyOfRange(0, resp.length)
+                )
+                writeTunPacket(ipPacket)
+            } catch (_: java.net.SocketTimeoutException) {} finally {
+                udpSockets.remove(key)
+                try { socket.close() } catch (_: Exception) {}
+            }
         } catch (_: Exception) {}
     }
 

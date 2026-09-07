@@ -20,13 +20,20 @@ class TcpTunnel(
     private val protectSocket: (Socket) -> Unit,
     private val onClose: () -> Unit,
     private val socksLogin: String = "",
-    private val socksPassword: String = ""
+    private val socksPassword: String = "",
+    private val routeMode: Int = 0
 ) {
     private var remoteSocket: Socket? = null
     private var remoteOut: OutputStream? = null
     private var remoteIn: InputStream? = null
 
     private var remoteSeqNum = 0
+
+    companion object {
+        @Volatile var totalBytesUp: Long = 0L
+        @Volatile var totalBytesDown: Long = 0L
+        fun resetCounters() { totalBytesUp = 0L; totalBytesDown = 0L }
+    }
     private var remoteAckNum = seqNum + 1
 
     @Volatile
@@ -35,41 +42,55 @@ class TcpTunnel(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    suspend fun connectToRemoteProxy(proxyHost: String, proxyPort: Int, writer: (ByteArray) -> Unit) {
+    private fun tunnelLog(msg: String) {
+        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+        val line = "$ts [TUN$connectionId] $msg\n"
+        try {
+            val f = java.io.File("/data/data/com.aistudio.redshift.rkzvpt/files/redshift_debug.log")
+            f.appendText(line)
+        } catch (_: Exception) {}
+    }    suspend fun connectToRemoteProxy(proxyHost: String, proxyPort: Int, euProxyHost: String, euProxyPort: Int, writer: (ByteArray) -> Unit) {
         if (closed) return
         val dstStr = "${dstIp shr 24 and 0xFF}.${dstIp shr 16 and 0xFF}.${dstIp shr 8 and 0xFF}.${dstIp and 0xFF}"
 
         try {
-            Log.e("RedShiftVPN", "Tunnel[$connectionId] connecting to proxy $proxyHost:$proxyPort for $dstStr:$dstPort")
             val socket = Socket()
             try {
-                Log.e("RedShiftVPN", "Tunnel[$connectionId] calling protect(socket)...")
                 protectSocket(socket)
-                Log.e("RedShiftVPN", "Tunnel[$connectionId] protect() called OK")
             } catch (e: Exception) {
-                Log.e("RedShiftVPN", "Tunnel[$connectionId] protect() threw: ${e.message}")
+                tunnelLog("protect() ERROR: ${e.message}")
             }
-            socket.connect(InetSocketAddress(proxyHost, proxyPort), 5000)
-            Log.e("RedShiftVPN", "Tunnel[$connectionId] connected to proxy, localAddr=${socket.localAddress}")
+
+            val isDirect = routeMode == 1
+            val useEu = routeMode == 2
+
+            if (isDirect) {
+                socket.connect(InetSocketAddress(dstStr, dstPort), 5000)
+            } else if (useEu) {
+                socket.connect(InetSocketAddress(euProxyHost, euProxyPort), 5000)
+            } else {
+                socket.connect(InetSocketAddress(proxyHost, proxyPort), 5000)
+            }
+
             socket.soTimeout = 30000
             socket.tcpNoDelay = true
-
             remoteSocket = socket
             remoteOut = socket.getOutputStream()
             remoteIn = socket.getInputStream()
 
-            Log.e("RedShiftVPN", "Tunnel[$connectionId] connected to proxy, performing SOCKS5 handshake for $dstStr:$dstPort")
-            performSocks5Handshake(dstIp, dstPort)
-            connected = true
-            Log.e("RedShiftVPN", "Tunnel[$connectionId] SOCKS5 handshake OK for $dstStr:$dstPort")
+            if (!isDirect) {
+                performSocks5Handshake(dstIp, dstPort)
+            }
 
+            connected = true
             sendSynAckToTun(writer)
+            remoteSeqNum = (remoteSeqNum + 1) and 0x7FFFFFFF
 
             scope.launch {
                 readFromRemote(writer)
             }
         } catch (e: Exception) {
-            Log.e("RedShiftVPN", "Tunnel[$connectionId] proxy error: ${e.message}")
+            tunnelLog("ERROR: $dstStr:$dstPort -> ${e.message}")
             close()
         }
     }
@@ -79,8 +100,12 @@ class TcpTunnel(
         val inp = remoteIn ?: return
 
         val useAuth = socksLogin.isNotEmpty() && socksPassword.isNotEmpty()
-        val nMethods = if (useAuth) 2 else 1
-        out.write(byteArrayOf(0x05, nMethods.toByte(), 0x00, 0x02))
+        val greeting = if (useAuth) {
+            byteArrayOf(0x05, 0x02, 0x00, 0x02)
+        } else {
+            byteArrayOf(0x05, 0x01, 0x00)
+        }
+        out.write(greeting)
         out.flush()
 
         val resp = ByteArray(2)
@@ -159,6 +184,7 @@ class TcpTunnel(
         try {
             remoteOut?.write(data)
             remoteOut?.flush()
+            totalBytesUp += data.size
             remoteAckNum = (remoteAckNum + data.size) and 0x7FFFFFFF
         } catch (_: Exception) {}
     }
@@ -185,12 +211,30 @@ class TcpTunnel(
         onClose()
     }
 
+    fun rstAndClose() {
+        if (closed) return
+        val rst = buildTcpPacket(
+            dstIp = srcIp, dstPort = srcPort,
+            srcIp = dstIp, srcPort = dstPort,
+            seqNum = remoteSeqNum, ackNum = remoteAckNum,
+            flags = 0x04,
+            ipId = (connectionId % 65535 + 2).toShort(),
+            payload = ByteArray(0)
+        )
+        try {
+            tunOutput.write(rst)
+            tunOutput.flush()
+        } catch (_: Exception) {}
+        close()
+    }
+
     private suspend fun readFromRemote(writer: (ByteArray) -> Unit) {
         try {
-            val buf = ByteArray(8192)
+            val buf = ByteArray(16384)
             while (!closed) {
                 val read = remoteIn?.read(buf) ?: -1
                 if (read == -1) break
+                totalBytesDown += read
 
                 val chunk = if (read == buf.size) buf else buf.copyOfRange(0, read)
                 val packet = buildTcpPacket(
@@ -238,10 +282,11 @@ class TcpTunnel(
         buf.putShort(dstPort.toShort())
         buf.putInt(seqNum)
         buf.putInt(ackNum)
-        buf.put(((flags and 0x3F) or 0x50).toByte())
-        buf.put(0x00.toByte())
-        buf.putShort(0)
-        buf.putShort(0)
+        buf.put(0x50.toByte()) // data offset = 5 * 16
+        buf.put(flags.toByte()) // TCP flags (SYN, ACK, etc.)
+        buf.putShort(65535.toShort()) // window size
+        buf.putShort(0) // TCP checksum placeholder
+        buf.putShort(0) // urgent pointer
         buf.put(payload)
 
         val tcpChecksum = computeTcpChecksum(

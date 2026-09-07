@@ -14,8 +14,14 @@ android {
     applicationId = "com.aistudio.redshift.rkzvpt"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // Централизованная схема версионирования (semver).
+    // Поднимай ВЕРСИЮ_ПРИЛОЖЕНИЯ при каждом релизе/сборке — versionCode
+    // пересчитается автоматически, и Android корректно перезапишет APK.
+    // Пока продукт не готов — держим мажор 0 (0.x.y).
+    val appVersionName = System.getenv("APP_VERSION") ?: "0.1.0"
+    val versionParts = appVersionName.split('.').map { it.toInt() }
+    versionCode = versionParts[0] * 1_000_000 + versionParts[1] * 10_000 + versionParts[2] * 100
+    versionName = appVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -54,6 +60,12 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+  }
+  packaging {
+    jniLibs {
+      keepDebugSymbols += setOf("*/arm64-v8a/libsingbox.so")
+      useLegacyPackaging = true
+    }
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
