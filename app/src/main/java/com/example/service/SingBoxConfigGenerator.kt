@@ -1,5 +1,6 @@
 package com.example.service
 
+import com.example.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -69,7 +70,7 @@ class SingBoxConfigGenerator {
     }
 
     private fun logConfig(): JSONObject = JSONObject().apply {
-        put("level", "info")
+        put("level", if (BuildConfig.DEBUG) "info" else "warn")
         put("timestamp", true)
     }
 
