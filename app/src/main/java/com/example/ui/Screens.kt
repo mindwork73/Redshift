@@ -1267,7 +1267,18 @@ fun ServersScreen(onAddServerClick: () -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedProtocolFilter by remember { mutableStateOf("All") }
 
-    val filterChips = listOf("All", "AmneziaWG", "VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria 2", "Favorites")
+    val filterChips = listOf("All", "AmneziaWG", "Hysteria 2", "VLESS", "Trojan", "Favorites")
+
+    fun protocolPriority(server: Server): Int {
+        val p = server.protocol.uppercase()
+        return when {
+            p.contains("AMNEZIA") || p.contains("AWG") || p.contains("WIREGUARD") -> 0
+            p.contains("HYSTERIA") || p == "HY2" || p == "H2" -> 1
+            p.contains("VLESS") -> 2
+            p.contains("TROJAN") -> 3
+            else -> 4
+        }
+    }
 
     val filteredServers = RedShiftState.servers.filter { server ->
         val matchesSearch = server.name.contains(searchQuery, ignoreCase = true) ||
@@ -1284,7 +1295,9 @@ fun ServersScreen(onAddServerClick: () -> Unit) {
             val known = list.filter { it.latency > 0 && it.latency < 9000 }.sortedBy { it.latency }
             val unknown = list.filter { it.latency <= 0 || it.latency >= 9000 }
             known + unknown
-        } else list
+        } else {
+            list.sortedWith(compareBy({ protocolPriority(it) }, { it.name.lowercase() }))
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

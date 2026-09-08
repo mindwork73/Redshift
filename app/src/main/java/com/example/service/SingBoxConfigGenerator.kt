@@ -14,6 +14,8 @@ class SingBoxConfigGenerator {
             ".ru", ".su", ".xn--p1ai", ".moscow", ".москва",
             ".yandex", ".ya.ru"
         )
+        private const val DEFAULT_HY2_UP_MBPS = 20
+        private const val DEFAULT_HY2_DOWN_MBPS = 100
     }
 
     fun generateConfig(server: SubServer, socksPort: Int = 10808, filesDir: String = ""): String {
@@ -67,7 +69,7 @@ class SingBoxConfigGenerator {
     }
 
     private fun logConfig(): JSONObject = JSONObject().apply {
-        put("level", "warn")
+        put("level", "info")
         put("timestamp", true)
     }
 
@@ -81,7 +83,7 @@ class SingBoxConfigGenerator {
                     put("address", JSONArray().apply { put("10.8.0.2/32") })
                     put("auto_route", false)
                     put("strict_route", false)
-                    put("stack", "system")
+                    put("stack", "gvisor")
                     put("mtu", 1280)
                 })
             })
@@ -178,6 +180,9 @@ class SingBoxConfigGenerator {
             val tls = JSONObject().apply {
                 put("enabled", true)
                 put("server_name", s.sni.ifEmpty { s.address })
+                if (s.alpn.isNotBlank()) {
+                    put("alpn", JSONArray().apply { s.alpn.split(",").forEach { alpn -> put(alpn.trim()) } })
+                }
                 if (s.protocol.contains("REALITY", true) || s.publicKey.isNotEmpty()) {
                     put("utls", JSONObject().apply {
                         put("enabled", true)
@@ -195,19 +200,43 @@ class SingBoxConfigGenerator {
 
         val network = s.network.lowercase()
         if (network == "ws" || network == "grpc" || network == "xhttp") {
-            val transport = JSONObject().apply { put("type", if (network == "xhttp") "ws" else network) }
+            val transport = JSONObject().apply { put("type", network) }
             when (network) {
                 "xhttp", "ws" -> {
-                    transport.put("path", "/")
-                    transport.put("headers", JSONObject().apply {
-                        if (s.sni.isNotEmpty()) put("Host", s.sni)
-                    })
+                    val path = if (s.path.isNotBlank()) s.path else "/"
+                    transport.put("path", path)
+                    val headers = JSONObject()
+                    val hostHeader = s.host.ifEmpty { s.sni }
+                    if (hostHeader.isNotEmpty()) headers.put("Host", hostHeader)
+                    val extra = parseExtra(s.extra)
+                    if (extra != null) {
+                        val extraHeaders = extra.optJSONObject("headers")
+                        if (extraHeaders != null) {
+                            extraHeaders.keys().forEach { key ->
+                                headers.put(key, extraHeaders.optString(key))
+                            }
+                        }
+                        val extraPath = extra.optString("path", "")
+                        if (extraPath.isNotEmpty()) transport.put("path", extraPath)
+                    }
+                    if (headers.length() > 0) transport.put("headers", headers)
                 }
             }
             out.put("transport", transport)
         }
 
         return out
+    }
+
+    private fun parseExtra(extra: String): org.json.JSONObject? {
+        if (extra.isBlank()) return null
+        return try {
+            org.json.JSONObject(java.net.URLDecoder.decode(extra, "UTF-8"))
+        } catch (_: Exception) {
+            try {
+                org.json.JSONObject(extra)
+            } catch (_: Exception) { null }
+        }
     }
 
     private fun buildTrojanOutbound(s: SubServer): JSONObject {
@@ -220,6 +249,9 @@ class SingBoxConfigGenerator {
             put("tls", JSONObject().apply {
                 put("enabled", true)
                 put("server_name", s.sni.ifEmpty { s.address })
+                if (s.alpn.isNotBlank()) {
+                    put("alpn", JSONArray().apply { s.alpn.split(",").forEach { alpn -> put(alpn.trim()) } })
+                }
             })
         }
     }
@@ -231,12 +263,28 @@ class SingBoxConfigGenerator {
             put("server", s.address)
             put("server_port", s.port)
             put("password", s.password)
+            put("up_mbps", optsUpMbps(s))
+            put("down_mbps", optsDownMbps(s))
             put("tls", JSONObject().apply {
                 put("enabled", true)
                 put("server_name", s.sni.ifEmpty { s.address })
-                put("alpn", JSONArray().put("h3"))
+                if (s.alpn.isNotBlank()) {
+                    put("alpn", JSONArray().apply { s.alpn.split(",").forEach { alpn -> put(alpn.trim()) } })
+                } else {
+                    put("alpn", JSONArray().put("h3"))
+                }
             })
         }
+    }
+
+    private fun optsUpMbps(s: SubServer): Int {
+        val p = parseExtra(s.extra)
+        return p?.takeIf { it.has("up_mbps") }?.optInt("up_mbps", 20) ?: DEFAULT_HY2_UP_MBPS
+    }
+
+    private fun optsDownMbps(s: SubServer): Int {
+        val p = parseExtra(s.extra)
+        return p?.takeIf { it.has("down_mbps") }?.optInt("down_mbps", 100) ?: DEFAULT_HY2_DOWN_MBPS
     }
 
     private fun buildShadowsocksOutbound(s: SubServer): JSONObject {

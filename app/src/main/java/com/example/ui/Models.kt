@@ -53,7 +53,11 @@ data class Server(
     val subLocalAddress: String = "",
     val subMtu: Int = 1420,
     val subAwgParams: String = "",
-    val subDns: String = ""
+    val subDns: String = "",
+    val subPath: String = "",
+    val subHost: String = "",
+    val subExtra: String = "",
+    val subAlpn: String = ""
 )
 
 data class Subscription(
@@ -238,7 +242,11 @@ object RedShiftState {
                                 subLocalAddress = obj.optString("localAddress", ""),
                                 subMtu = obj.optInt("mtu", 0),
                                 subAwgParams = obj.optString("awgParams", ""),
-                                subDns = obj.optString("dns", "")
+                                subDns = obj.optString("dns", ""),
+                                subPath = obj.optString("path", ""),
+                                subHost = obj.optString("host", ""),
+                                subExtra = obj.optString("extra", ""),
+                                subAlpn = obj.optString("alpn", "")
                             ))
                         }
                     }
@@ -380,7 +388,11 @@ object RedShiftState {
                         subLocalAddress = sub.localAddress,
                         subMtu = sub.mtu,
                         subAwgParams = sub.awgParams,
-                        subDns = sub.dns
+                        subDns = sub.dns,
+                        subPath = sub.path,
+                        subHost = sub.host,
+                        subExtra = sub.extra,
+                        subAlpn = sub.alpn
                     )
                 )
             }
@@ -444,7 +456,11 @@ object RedShiftState {
             localAddress = subLocalAddress,
             mtu = subMtu,
             awgParams = subAwgParams,
-            dns = subDns
+            dns = subDns,
+            path = subPath,
+            host = subHost,
+            extra = subExtra,
+            alpn = subAlpn
         )
     }
 
@@ -683,18 +699,42 @@ object RedShiftState {
                             subscriptionPlan = "Data: %.1f / %.1f GB".format(usedMb / 1024.0, totalMb / 1024.0)
                         }
                     }
+                    if (subscriptionPlan.isBlank() && profile.plan.isNotBlank()) {
+                        subscriptionPlan = profile.plan
+                    }
+                    if ((subscriptionExpiry.isBlank() || subscriptionExpiry == "N/A") && profile.expiresAt.isNotBlank()) {
+                        val exp = profile.expiresAt.take(10)
+                        if (exp != "N/A") subscriptionExpiry = exp
+                    }
                 }
 
                 val userIdFromUrl = url.substringAfterLast("/").substringBefore("?").trim()
-                if (userIdFromUrl.isNotEmpty() && userIdFromUrl.all { it.isDigit() }) {
-                    val user = apiClient.getUser(userIdFromUrl.toIntOrNull() ?: 0)
-                    if (user != null) {
-                        userInfo = user
-                        telegramToken = userIdFromUrl
-                        isLoggedIn = true
-                        user.subscription?.tariff?.let { subscriptionPlan = it }
-                        user.subscription?.expiresAt?.let { subscriptionExpiry = it }
+                val numericUserId = userIdFromUrl.toIntOrNull()
+                if (profile == null || subscriptionPlan.isBlank() || subscriptionExpiry.isBlank() || numericUserId == null) {
+                    val resolvedUserId = when {
+                        numericUserId != null -> numericUserId
+                        else -> telegramToken.toIntOrNull()
                     }
+                    if (resolvedUserId != null) {
+                        val user = apiClient.getUser(resolvedUserId)
+                        if (user != null) {
+                            userInfo = user
+                            telegramToken = resolvedUserId.toString()
+                            isLoggedIn = true
+                            user.subscription?.tariff?.let { subscriptionPlan = it }
+                            user.subscription?.expiresAt?.let { subscriptionExpiry = it }
+                        }
+                        val sub2 = apiClient.getSubscription(resolvedUserId)
+                        if (sub2 != null) {
+                            if (subscriptionPlan.isBlank()) subscriptionPlan = sub2.tariff
+                            if (subscriptionExpiry.isBlank()) {
+                                val exp = sub2.expiresAt.take(10)
+                                if (exp.isNotBlank() && exp != "N/A") subscriptionExpiry = exp
+                            }
+                        }
+                    }
+                    settingsStore?.setUserId(if (resolvedUserId != null) resolvedUserId.toString() else userIdFromUrl)
+                } else {
                     settingsStore?.setUserId(userIdFromUrl)
                 }
                 settingsStore?.setTariffName(subscriptionPlan)
@@ -761,6 +801,10 @@ object RedShiftState {
                 put("mtu", s.mtu)
                 put("awgParams", s.awgParams)
                 put("dns", s.dns)
+                put("path", s.path)
+                put("host", s.host)
+                put("extra", s.extra)
+                put("alpn", s.alpn)
             })
         }
         store.setCachedServersJson(serversJson.toString())

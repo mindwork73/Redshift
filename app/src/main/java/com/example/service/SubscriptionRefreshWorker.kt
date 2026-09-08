@@ -47,6 +47,10 @@ class SubscriptionRefreshWorker(
                 put("mtu", server.mtu)
                 put("awgParams", server.awgParams)
                 put("dns", server.dns)
+                put("path", server.path)
+                put("host", server.host)
+                put("extra", server.extra)
+                put("alpn", server.alpn)
             })
         }
 

@@ -31,7 +31,11 @@ data class SubServer(
     val localAddress: String = "",
     val mtu: Int = 1420,
     val awgParams: String = "",
-    val dns: String = ""
+    val dns: String = "",
+    val path: String = "",
+    val host: String = "",
+    val extra: String = "",
+    val alpn: String = ""
 )
 
 data class SubscriptionResult(
@@ -46,7 +50,9 @@ data class ProfileInfo(
     val download: Long = 0,
     val total: Long = 0,
     val expiry: Long = 0,
-    val username: String = ""
+    val username: String = "",
+    val plan: String = "",
+    val expiresAt: String = ""
 )
 
 class SubscriptionClient {
@@ -75,9 +81,31 @@ class SubscriptionClient {
             val body = response.body?.string() ?: return@withContext SubscriptionResult(url, emptyList(), "Empty response")
 
             val servers = parseSubscriptionBody(body)
-            var profileInfo = parseSubscriptionUserinfoHeader(response)
-            if (profileInfo == null) {
-                profileInfo = parseProfileInfoHeader(response)
+            var profileInfo = parseProfileInfoHeader(response)
+            if (profileInfo != null) {
+                val ui = parseSubscriptionUserinfoHeader(response)
+                if (ui == null) {
+                    val fromBody = parseSubscriptionUserinfoFromBody(body)
+                    if (fromBody != null && profileInfo.expiry <= 0 && profileInfo.total <= 0) {
+                        profileInfo = ProfileInfo(
+                            upload = fromBody.upload,
+                            download = fromBody.download,
+                            total = fromBody.total,
+                            expiry = fromBody.expiry,
+                            username = profileInfo.username,
+                            plan = profileInfo.plan,
+                            expiresAt = profileInfo.expiresAt
+                        )
+                    }
+                }
+            } else {
+                profileInfo = parseSubscriptionUserinfoHeader(response)
+                if (profileInfo == null) {
+                    profileInfo = parseProfileInfoHeader(response)
+                }
+                if (profileInfo == null) {
+                    profileInfo = parseSubscriptionUserinfoFromBody(body)
+                }
             }
             SubscriptionResult(url, servers, profileInfo = profileInfo)
         } catch (e: Exception) {
@@ -115,7 +143,9 @@ class SubscriptionClient {
                 download = json.optLong("download", 0),
                 total = json.optLong("total", 0),
                 expiry = json.optLong("expiry", 0),
-                username = json.optString("username", "")
+                username = json.optString("username", ""),
+                plan = json.optString("tariff", "").ifEmpty { json.optString("plan", "") },
+                expiresAt = json.optString("expires_at", "")
             )
         } catch (_: Exception) {
             val decoded = try { java.net.URLDecoder.decode(header, "UTF-8") } catch (_: Exception) { header }
@@ -126,10 +156,36 @@ class SubscriptionClient {
                     download = json.optLong("download", 0),
                     total = json.optLong("total", 0),
                     expiry = json.optLong("expiry", 0),
-                    username = json.optString("username", "")
+                    username = json.optString("username", ""),
+                    plan = json.optString("tariff", "").ifEmpty { json.optString("plan", "") },
+                    expiresAt = json.optString("expires_at", "")
                 )
             } catch (_: Exception) { null }
         }
+    }
+
+    private fun parseSubscriptionUserinfoFromBody(body: String): ProfileInfo? {
+        return try {
+            val run = body.substringAfter("#subscription-userinfo:", missingDelimiterValue = "")
+            if (run.isEmpty()) return null
+            val lineEnd = run.indexOf('\n')
+            val line = (if (lineEnd >= 0) run.substring(0, lineEnd) else run).trim()
+            val fields = HashMap<String, Long>()
+            for (part in line.split(";")) {
+                val kv = part.trim().split("=", limit = 2)
+                if (kv.size == 2) {
+                    fields[kv[0].trim().lowercase()] = kv[1].trim().toLongOrNull() ?: 0L
+                }
+            }
+            if (fields.isEmpty()) return null
+            ProfileInfo(
+                upload = fields["upload"] ?: 0L,
+                download = fields["download"] ?: 0L,
+                total = fields["total"] ?: 0L,
+                expiry = fields["expire"] ?: 0L,
+                username = ""
+            )
+        } catch (_: Exception) { null }
     }
 
     private fun parseSubscriptionBody(body: String): List<SubServer> {
@@ -292,6 +348,14 @@ class SubscriptionClient {
             security == "tls" -> "VLESS+TLS"
             else -> "VLESS"
         }
+        val rawPath = params["path"] ?: ""
+        val decodedPath = try {
+            java.net.URLDecoder.decode(rawPath, "UTF-8")
+        } catch (_: Exception) { rawPath }
+        val rawHost = params["host"] ?: ""
+        val decodedHost = try {
+            java.net.URLDecoder.decode(rawHost, "UTF-8")
+        } catch (_: Exception) { rawHost }
         return SubServer(
             id = "vless_${index}_${System.currentTimeMillis()}",
             name = name.ifEmpty { "VLESS Node ${index + 1}" },
@@ -307,7 +371,11 @@ class SubscriptionClient {
             sni = params["sni"] ?: "",
             publicKey = params["pbk"] ?: "",
             shortId = params["sid"] ?: "",
-            fingerprint = params["fp"] ?: "chrome"
+            fingerprint = params["fp"] ?: "chrome",
+            path = decodedPath,
+            host = decodedHost,
+            extra = params["extra"] ?: "",
+            alpn = params["alpn"] ?: ""
         )
     }
 
@@ -352,7 +420,8 @@ class SubscriptionClient {
             flag = flag,
             password = password,
             tls = true,
-            sni = params["sni"] ?: host
+            sni = params["sni"] ?: host,
+            alpn = params["alpn"] ?: ""
         )
     }
 
@@ -411,7 +480,8 @@ class SubscriptionClient {
             port = port,
             flag = flag,
             password = authPart,
-            sni = params["sni"] ?: host
+            sni = params["sni"] ?: host,
+            alpn = params["alpn"] ?: ""
         )
     }
 

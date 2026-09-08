@@ -185,6 +185,7 @@
         <a href="#step2a">Шаг 2a — V2Box (iOS / Android)</a>
         <a href="#step2b">Шаг 2b — AWG / AmneziaWireGuard</a>
         <a href="#step2c">Шаг 2c — TrustTunnel</a>
+        <a href="#step2d">Шаг 2d — Google AI (AI Studio / NotebookLM)</a>
         <a href="#step3">Шаг 3 — Выбор сервера и порты HY2</a>
         <a href="#step4">Шаг 4 — MTProto для Telegram</a>
         <a href="#step5">Шаг 5 — SOCKS5 для Smart TV</a>
@@ -238,6 +239,18 @@
         <div>
             <a href="https://hiddify.com/" class="download-btn" target="_blank">Скачать Hiddify</a>
             <a href="https://github.com/hiddify/hiddify-next/releases" class="download-btn-ghost" target="_blank">GitHub</a>
+        </div>
+
+        <h3>⚪ DefaultVPN (iOS / Android)</h3>
+        <p>Для iOS в России — рекомендуется для AWG-подключения. Поддерживает AmneziaWG.</p>
+        <div>
+            <a href="https://apps.apple.com/app/defaultvpn/id6503047498" class="download-btn-ghost" target="_blank">App Store</a>
+        </div>
+
+        <h3>🟣 AmneziaVPN</h3>
+        <p>Родной клиент для AWG. Работает на всех платформах.</p>
+        <div>
+            <a href="https://amnezia.org/ru/download" class="download-btn-ghost" target="_blank">Скачать AmneziaVPN</a>
         </div>
 
         <h3>🟣 V2Box</h3>
@@ -321,6 +334,7 @@
             <span class="tag">macOS</span>
             <span class="tag">Linux</span>
             <span class="tag">Android</span>
+            <span class="tag">iOS</span>
         </div>
         <p>
             <strong>AmneziaWireGuard (AWG)</strong> — это модифицированный WireGuard с обфускацией (Junk-пакеты,
@@ -328,19 +342,31 @@
         </p>
         <p>RedPill Cloud выдаёт AWG-конфиги на двух серверах:</p>
         <ul>
-            <li>🇷🇺 <strong>RU</strong> — порт <strong>8443</strong> (Россия);</li>
-            <li>🇪🇺 <strong>EU/NL</strong> — порт <strong>8444</strong> (Нидерланды).</li>
+            <li>🇳🇱 <strong>NL</strong> — порт <strong>8444</strong> (Нидерланды);</li>
+            <li>🇪🇺 <strong>EU</strong> — порт <strong>8444</strong> (ЕС).</li>
         </ul>
 
         <h3>Как получить AWG-конфиг</h3>
         <ol>
             <li>Откройте <a href="https://t.me/redpillcloud_bot">@redpillcloud_bot</a>.</li>
             <li>Нажмите <strong>«💳 Моя подписка»</strong> → <strong>«🔐 AWG (AmneziaWG)»</strong>.</li>
-            <li>Бот покажет кнопки: <strong>«📄 Скачать RU</strong> и <strong>📄 Скачать EU»</strong>.</li>
+            <li>Бот покажет кнопки: <strong>«📄 Скачать NL»</strong> и <strong>«📄 Скачать EU»</strong>.</li>
             <li>Скачайте конфиг-файл или скопируйте его содержимое.</li>
         </ol>
 
-        <h3>Вариант A: Через Hiddify (рекомендуется)</h3>
+        <h3>📱 iOS — DefaultVPN (рекомендуется)</h3>
+        <p>Для iOS в России лучше всего работает <strong>DefaultVPN</strong> — поддерживает AmneziaWG.</p>
+        <div>
+            <a href="https://apps.apple.com/app/defaultvpn/id6503047498" class="download-btn" target="_blank">App Store</a>
+        </div>
+        <ol>
+            <li>Установите DefaultVPN из App Store.</li>
+            <li>Скопируйте AWG-конфиг из бота.</li>
+            <li>В DefaultVPN: <strong>«Добавить»</strong> → <strong>«Из буфера»</strong> или <strong>«Из файла»</strong>.</li>
+            <li>Сохраните и подключитесь.</li>
+        </ol>
+
+        <h3>Variante B: Hiddify (рекомендуется для Android/Desktop)</h3>
         <ol>
             <li>Скачайте и откройте <strong>Hiddify</strong>.</li>
             <li>Нажмите <strong>«Добавить профиль»</strong>.</li>
@@ -349,7 +375,7 @@
             <li>Сохраните профиль. Hiddify сам распознает AWG и подставит нужные параметры.</li>
         </ol>
 
-        <h3>Вариант B: AmneziaVPN (родной клиент)</h3>
+        <h3>Variante C: AmneziaVPN (родной клиент)</h3>
         <ol>
             <li>Установите <strong>AmneziaVPN</strong> с <a href="https://amnezia.org/ru/download" target="_blank">официального сайта</a>.</li>
             <li>Запустите приложение, нажмите <strong>«Добавить сервер»</strong>.</li>
@@ -358,7 +384,7 @@
             <li>Подключитесь.</li>
         </ol>
 
-        <h3>Вариант C: WireGuard (если нет DPI-блокировок)</h3>
+        <h3>Variante D: WireGuard (если нет DPI-блокировок)</h3>
         <p>AWG-конфиг совместим с обычным WireGuard. Если у провайдера нет глубокой фильтрации — просто импортируйте файл в WireGuard client.</p>
 
         <div class="highlight">
@@ -381,16 +407,34 @@
             <strong>TrustTunnel</strong> — это легковесный защищённый туннель поверх TLS (HTTPS).
             Идеален для обхода блокировок Telegram и другого трафика в сетях с жёстким DPI.
         </p>
-        <p>Сервер: <strong>tt.redpillcloud.ru:10444</strong></p>
+        <p>Сервер NL: <strong>tt.redpillcloud.ru:10444</strong> или <strong>redpillcloud.ru:10443</strong></p>
+
+        <h3>🇳🇱 Серверы</h3>
+        <ul>
+            <li><strong>tt.redpillcloud.ru:10444</strong> — TLS-прокси (nginx, основной)</li>
+            <li><strong>redpillcloud.ru:10443</strong> — прямой порт TrustTunnel</li>
+        </ul>
 
         <h3>Как получить доступ</h3>
         <ol>
             <li>Откройте <a href="https://t.me/redpillcloud_bot">@redpillcloud_bot</a>.</li>
             <li>Нажмите <strong>«💳 Моя подписка»</strong> → <strong>«🛰 TrustTunnel»</strong>.</li>
             <li>Бот выдаст <strong>логин</strong> (формата <code>rp_123456789</code>) и <strong>пароль</strong>.</li>
+            <li>Скопируйте <strong>Subscription URL</strong> — в нём уже есть <strong>tt:// deeplink</strong>.</li>
         </ol>
 
-        <h3>Настройка</h3>
+        <h3>🇪🇺 Сервер EU</h3>
+        <p><strong>eu1.redpillcloud.ru:10443</strong> (прямой порт TrustTunnel)</p>
+
+        <h3>🔗 Быстрый импорт (deeplink)</h3>
+        <p>Самый простой способ — подписка уже содержит ссылку <code>tt://?</code>:</p>
+        <ol>
+            <li>Скопируйте ссылку подписки (Subscription URL) из бота.</li>
+            <li>TrustTunnel автоматически импортирует всё при открытии.</li>
+            <li>Ничего вводить вручную не нужно.</li>
+        </ol>
+
+        <h3>📱 Настройка вручную</h3>
         <p><strong>Скачайте TrustTunnel-клиент:</strong></p>
         <div>
             <a href="https://github.com/patryk4815/trusttunnel-client/releases" class="download-btn-ghost" target="_blank">TrustTunnel Client (GitHub)</a>
@@ -403,7 +447,7 @@
             <li>Нажмите «Connect».</li>
         </ol>
 
-        <h3>Быстрая настройка TrustTunnel вручную</h3>
+        <h3>🛠 client.toml</h3>
         <p>Создайте файл <code>client.toml</code>:</p>
         <div class="code-block">
             server_address = "tt.redpillcloud.ru:10444"<br>
@@ -416,36 +460,78 @@
         <div class="code-block">trusttunnel_client client.toml</div>
 
         <div class="highlight">
-            <p>TrustTunnel работает поверх стандартного HTTPS (порт 10444), поэтому его сложно заблокировать — трафик неотличим от обычного веб-сёрфинга.</p>
+            <p>TrustTunnel работает поверх стандартного HTTPS, поэтому его сложно заблокировать — трафик неотличим от обычного веб-сёрфинга.</p>
+        </div>
+    </div>
+
+    <!-- Шаг 2d: Google AI / AI Studio -->
+    <div class="step" id="step2d">
+        <h2>Шаг 2d: 🇺🇸 Google AI — AI Studio, NotebookLM, Gemini</h2>
+        <div class="pill-group">
+            <span class="proto-badge pb-socks">SOCKS5</span>
+            <span class="tag">Google AI</span>
+            <span class="tag">AI Studio</span>
+            <span class="tag">NotebookLM</span>
+        </div>
+        <p>
+            <strong>Google AI Studio</strong>, <strong>NotebookLM</strong> и <strong>Gemini</strong>
+            недоступны с IP Европы/Нидерландов из-за региональных ограничений Google.
+        </p>
+
+        <h3>🔌 Сервер уже в вашей подписке</h3>
+        <p>
+            При импорте Subscription URL в клиенте появится сервер <strong>🇺🇸 Google AI</strong> —
+            это отдельный SOCKS5-прокси через US. Выберите его для доступа к Google AI.
+        </p>
+
+        <p>Если сервер не отображается в вашем клиенте — добавьте SOCKS5 вручную:</p>
+        <div class="code-block">
+            Сервер: <strong>37.220.84.106</strong><br>
+            Порт: <strong>10808</strong><br>
+            Логин: <strong>googleai</strong><br>
+            Пароль: <strong>redpill2026</strong>
+        </div>
+
+        <div class="highlight warn">
+            <p>⚠️ Это отдельное подключение <strong>только для Google AI</strong>. US-прокси медленнее
+            основного канала (~0.5–2с задержки). Не используйте его для общего трафика.</p>
         </div>
     </div>
 
     <!-- Шаг 3: выбор профиля и порты -->
     <div class="step" id="step3">
-        <h2>Шаг 3: Выбор сервера и правильные порты Hysteria2</h2>
+        <h2>Шаг 3: Выбор сервера и порты Hysteria2</h2>
         <p>После обновления подписки в клиенте появятся профили:</p>
         <ul>
             <li>🇳🇱 NL • RedpillCloud VLESS <span class="tag">VLESS+REALITY</span></li>
-            <li>🇷🇺 RU • RedpillCloud VLESS <span class="tag">VLESS+REALITY</span></li>
             <li>🇳🇱 NL • RedpillCloud HY2 <span class="tag">Hysteria2</span></li>
-            <li>🇷🇺 RU • RedpillCloud HY2 <span class="tag">Hysteria2</span></li>
-            <li>🇷🇺 RU Mobile (экспериментальный) <span class="tag">VLESS</span></li>
+            <li>🇪🇺 EU • RedpillCloud HY2 <span class="tag">Hysteria2</span></li>
+            <li>🇳🇱 NL • TUIC v5 <span class="tag">TUIC</span></li>
+            <li>🇪🇺 EU • TUIC v5 <span class="tag">TUIC</span></li>
+            <li>🇺🇸 Google AI <span class="tag">SOCKS5</span> — для AI Studio / NotebookLM</li>
         </ul>
 
         <p><strong>Рекомендуем:</strong></p>
         <ul>
             <li>Для максимальной скорости и обхода блокировок — профили <strong>Hysteria2 (HY2)</strong>.</li>
-            <li>Для стабильного доступа к российским сервисам — <strong>VLESS RU</strong>.</li>
+            <li>Для доступа к Google AI — сервер <strong>🇺🇸 Google AI</strong> (отдельный SOCKS5 через US).</li>
         </ul>
 
         <div class="highlight">
             <p><strong>Порты для Hysteria2 (проверить в Happ/Hiddify, если не подставились автоматически):</strong></p>
             <ul>
                 <li>🇳🇱 NL HY2: порт <strong>2443</strong></li>
-                <li>🇷🇺 RU HY2: порт <strong>2444</strong></li>
+                <li>🇪🇺 EU HY2: порт <strong>4443</strong></li>
             </ul>
             <p>Если после импорта клиент подставил другой порт — зайдите в настройки профиля и исправьте.</p>
         </div>
+
+        <ol>
+            <li>Выберите профиль (например, «🇳🇱 NL • RedpillCloud HY2»).</li>
+            <li>Проверьте порт: 2443 для NL, 4443 для EU.</li>
+            <li>Нажмите <strong>«Подключиться»</strong>.</li>
+        </ol>
+    </div>
 
         <ol>
             <li>Выберите профиль (например, «🇳🇱 NL • RedpillCloud HY2»).</li>
@@ -540,20 +626,24 @@
             <li>Обновите Hiddify до последней версии.</li>
             <li>Попробуйте <strong>AmneziaVPN</strong> вместо Hiddify — он лучше работает с AWG.</li>
             <li>Проверьте, что в конфиге указаны параметры <code>Jc</code>, <code>Jmin</code>, <code>Jmax</code>.</li>
-            <li>Убедитесь, что порты 8443 (RU) / 8444 (EU) не заблокированы провайдером.</li>
+            <li>Убедитесь, что порт 8444 не заблокирован провайдером.</li>
         </ul>
 
         <h3>TrustTunnel не соединяется</h3>
         <ul>
             <li>Проверьте логин и пароль — они чувствительны к регистру.</li>
-            <li>Убедитесь, что в клиенте указан правильный порт: <strong>10444</strong>.</li>
-            <li>Проверьте, что адрес сервера: <code>tt.redpillcloud.ru</code> (без http://).</li>
-            <li>TrustTunnel использует TLS (порт 10444), обычный HTTPS-трафик не блокируется.</li>
+            <li>Убедитесь, что в клиенте указан правильный адрес:</li>
+            <ul>
+                <li>🇳🇱 NL: <code>tt.redpillcloud.ru:10444</code> или <code>redpillcloud.ru:10443</code></li>
+                <li>🇪🇺 EU: <code>eu1.redpillcloud.ru:10443</code></li>
+            </ul>
+            <li>TrustTunnel использует TLS (HTTPS), трафик неотличим от веб-сёрфинга.</li>
+            <li><strong>Deeplink:</strong> проще всего импортировать подписку — ссылка вида <code>tt://</code> уже есть в Subscription URL из бота.</li>
         </ul>
 
         <h3>Hysteria2 не работает</h3>
         <ul>
-            <li>Проверьте порт в настройках профиля: NL — 2443, RU — 2444.</li>
+            <li>Проверьте порт в настройках профиля: NL — 2443, EU — 4443.</li>
             <li>Убедитесь, что выбран протокол Hysteria2 (не VLESS).</li>
             <li>Для Happ/Hiddify: после импорта подписки обновите список серверов кнопкой Refresh.</li>
         </ul>
