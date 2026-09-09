@@ -1,8 +1,6 @@
 package com.example.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -18,37 +16,33 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.Dp
 import com.example.ui.theme.RedSpace
 import com.example.ui.theme.RedType
 import com.example.ui.theme.VpnColors
 
 /**
- * Vertical screen container (REDESIGN.md §7.2): gradient background, inset-aware,
- * 24dp horizontal / 20dp vertical content padding, scrolling when the content is tall.
+ * Vertical screen container (REDESIGN.md §7.2): inset-aware, 24dp / 20dp content padding.
+ *
+ * Background is owned by [SceneBackdrop]:
+ * * [imageBackground] = true → `R.drawable.world` (Crop) + dark overlay (Home).
+ * * otherwise → vertical gradient sampled from the same photo, so other tabs / onboarding
+ *   share the palette without painting the picture.
  */
 @Composable
 fun Screen(
     modifier: Modifier = Modifier,
     scrollable: Boolean = true,
+    imageBackground: Boolean = false,
     statusBarPadding: Boolean = true,
     navigationBarPadding: Boolean = false,
     horizontalPadding: Dp = RedSpace.Xl,
     verticalPadding: Dp = RedSpace.L,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        VpnColors.BackgroundGradientTop,
-                        VpnColors.BackgroundGradientBottom
-                    )
-                )
-            )
+    SceneBackdrop(
+        imageBackground = imageBackground,
+        modifier = modifier.fillMaxSize()
     ) {
         val insets = Modifier
             .then(if (statusBarPadding) Modifier.statusBarsPadding() else Modifier)
@@ -89,4 +83,3 @@ fun ScreenHeader(
         )
     }
 }
-

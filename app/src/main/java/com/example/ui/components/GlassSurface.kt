@@ -17,25 +17,37 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.RedRadius
 import com.example.ui.theme.RedSpace
 import com.example.ui.theme.VpnColors
+import kotlin.math.roundToInt
 
 /**
  * The base "glass" primitive (REDESIGN.md §7.1).
  *
- * Glass is imitated without runtime blur: a vertical white gradient (alpha 0.09 → 0.05) over the
- * deep background, a hairline white border, a soft dark shadow and a thin glint on the top edge.
+ * On screens with a photo ([LocalSceneHasImage]) a downscaled box-blur of the scene is drawn
+ * underneath the translucent fill, pixel-aligned to the scene and clipped to [shape].
+ * On gradient-only screens the blur is skipped.
  */
 @Composable
 fun GlassSurface(
@@ -47,49 +59,8 @@ fun GlassSurface(
     horizontalAlignment: Alignment.Horizontal = Alignment.Start,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .shadow(
-                elevation = 12.dp,
-                shape = shape,
-                ambientColor = Color.Black.copy(alpha = 0.4f),
-                spotColor = Color.Black.copy(alpha = 0.4f)
-            )
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.09f),
-                        Color.White.copy(alpha = 0.05f)
-                    )
-                ),
-                shape = shape
-            )
-            .border(
-                width = 0.75.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(VpnColors.GlassBorderTop, VpnColors.GlassBorder)
-                ),
-                shape = shape
-            )
-    ) {
-        if (showGlint) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth(0.62f)
-                    .height(0.6.dp)
-                    .background(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                VpnColors.GlassGlint,
-                                VpnColors.GlassGlint,
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-        }
+    Box(modifier = modifier.then(rememberGlassChrome(shape))) {
+        GlassGlint(visible = showGlint)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -113,49 +84,8 @@ fun GlassBox(
     contentAlignment: Alignment = Alignment.Center,
     content: @Composable BoxScope.() -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .shadow(
-                elevation = 12.dp,
-                shape = shape,
-                ambientColor = Color.Black.copy(alpha = 0.4f),
-                spotColor = Color.Black.copy(alpha = 0.4f)
-            )
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.09f),
-                        Color.White.copy(alpha = 0.05f)
-                    )
-                ),
-                shape = shape
-            )
-            .border(
-                width = 0.75.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(VpnColors.GlassBorderTop, VpnColors.GlassBorder)
-                ),
-                shape = shape
-            )
-    ) {
-        if (showGlint) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth(0.62f)
-                    .height(0.6.dp)
-                    .background(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                VpnColors.GlassGlint,
-                                VpnColors.GlassGlint,
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-        }
+    Box(modifier = modifier.then(rememberGlassChrome(shape))) {
+        GlassGlint(visible = showGlint)
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = contentAlignment,
@@ -188,4 +118,79 @@ fun GlassIconBubble(
             modifier = Modifier.size(size * 0.5f)
         )
     }
+}
+
+/**
+ * Shared chrome for [GlassSurface] / [GlassBox]: shadow, clip-to-shape, optional scene blur,
+ * translucent fill, hairline border.
+ */
+@Composable
+private fun rememberGlassChrome(shape: Shape): Modifier {
+    val hasImage = LocalSceneHasImage.current
+    val scene = LocalSceneBounds.current
+    val blurred = LocalBlurredScene.current
+    var origin by remember { mutableStateOf(Offset.Zero) }
+
+    val blurLayer = if (hasImage && blurred != null && scene.size.width > 0) {
+        Modifier.drawBehind {
+            val dx = (scene.positionInRoot.x - origin.x).roundToInt()
+            val dy = (scene.positionInRoot.y - origin.y).roundToInt()
+            drawImage(
+                image = blurred,
+                dstOffset = IntOffset(dx, dy),
+                dstSize = scene.size,
+                filterQuality = FilterQuality.Low
+            )
+        }
+    } else {
+        Modifier
+    }
+
+    return Modifier
+        .onGloballyPositioned { coords -> origin = coords.positionInRoot() }
+        .shadow(
+            elevation = 12.dp,
+            shape = shape,
+            ambientColor = Color.Black.copy(alpha = 0.4f),
+            spotColor = Color.Black.copy(alpha = 0.4f)
+        )
+        .clip(shape)
+        .then(blurLayer)
+        .background(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.09f),
+                    Color.White.copy(alpha = 0.05f)
+                )
+            ),
+            shape = shape
+        )
+        .border(
+            width = 0.75.dp,
+            brush = Brush.verticalGradient(
+                colors = listOf(VpnColors.GlassBorderTop, VpnColors.GlassBorder)
+            ),
+            shape = shape
+        )
+}
+
+@Composable
+private fun BoxScope.GlassGlint(visible: Boolean) {
+    if (!visible) return
+    Box(
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .fillMaxWidth(0.62f)
+            .height(0.6.dp)
+            .background(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        VpnColors.GlassGlint,
+                        VpnColors.GlassGlint,
+                        Color.Transparent
+                    )
+                )
+            )
+    )
 }

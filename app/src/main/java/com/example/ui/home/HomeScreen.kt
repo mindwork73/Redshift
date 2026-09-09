@@ -46,6 +46,9 @@ import com.example.ui.theme.VpnColors
 /**
  * Home tab (REDESIGN.md §8.1): timer, status, connect button, the currently selected server
  * and live metrics. Everything shown comes from [RedShiftState] — no placeholder numbers.
+ *
+ * Fixed to one screen ([scrollable] = false) with weighted spacers; the scene photo is
+ * `R.drawable.world` via [com.example.ui.components.Screen] `imageBackground`.
  */
 @Composable
 fun HomeScreen(onOpenServers: () -> Unit) {
@@ -53,7 +56,7 @@ fun HomeScreen(onOpenServers: () -> Unit) {
     val server = RedShiftState.getSelectedServer()
     val plan = RedShiftState.subscriptionPlan
 
-    Screen(scrollable = true) {
+    Screen(scrollable = false, imageBackground = true) {
         // ── Header: app name + real tariff pill ──
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -70,7 +73,7 @@ fun HomeScreen(onOpenServers: () -> Unit) {
             }
         }
 
-        Spacer(Modifier.height(RedSpace.Xxl))
+        Spacer(Modifier.weight(0.45f))
 
         // ── Timer + status ──
         Column(
@@ -112,7 +115,7 @@ fun HomeScreen(onOpenServers: () -> Unit) {
             )
         }
 
-        Spacer(Modifier.height(RedSpace.Xxl))
+        Spacer(Modifier.weight(0.55f))
 
         // ── Connect button ──
         Box(
@@ -125,7 +128,7 @@ fun HomeScreen(onOpenServers: () -> Unit) {
             )
         }
 
-        Spacer(Modifier.height(RedSpace.Xxl))
+        Spacer(Modifier.weight(0.50f))
 
         // ── Current server (tap → Servers tab) ──
         GlassSurface(
@@ -266,6 +269,6 @@ fun HomeScreen(onOpenServers: () -> Unit) {
             }
         }
 
-        Spacer(Modifier.height(RedSpace.M))
+        Spacer(Modifier.weight(0.30f))
     }
 }
