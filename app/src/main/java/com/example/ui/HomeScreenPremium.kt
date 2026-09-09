@@ -18,6 +18,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,14 +49,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.example.R
 import com.example.ui.theme.VpnColors
 import com.example.ui.theme.VpnDimensions
 import com.example.ui.theme.VpnTypography
@@ -119,6 +124,24 @@ fun HomeScreenContent(
             .fillMaxSize()
             .background(VpnColors.Background)
     ) {
+        Image(
+            painter = painterResource(id = R.drawable.img_cyber_hero),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            alpha = 0.35f
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.5f to VpnColors.Background.copy(alpha = 0.85f),
+                        1f to VpnColors.Background
+                    )
+                )
+        )
         HomeScreenPremium(
             onServerSelectClick = onOpenServers,
             onToggleConnection = onToggleConnection
@@ -469,24 +492,37 @@ private fun ServerSelectorCard(server: Server?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(VpnColors.surfaceGlass)
-            .border(1.dp, VpnColors.borderLight, RoundedCornerShape(16.dp))
+            .height(88.dp)
+            .shadow(
+                14.dp,
+                RoundedCornerShape(22.dp),
+                ambientColor = Color.Black.copy(alpha = 0.4f),
+                spotColor = VpnColors.accentGreen.copy(alpha = 0.18f)
+            )
+            .clip(RoundedCornerShape(22.dp))
+            .background(VpnColors.surfaceGlass.copy(alpha = 0.45f))
+            .drawBehind {
+                drawRect(
+                    brush = Brush.linearGradient(
+                        listOf(Color.White.copy(alpha = 0.12f), Color.Transparent)
+                    )
+                )
+            }
+            .border(1.5.dp, Brush.linearGradient(VpnColors.premiumGradient), RoundedCornerShape(22.dp))
             .clickable { onClick() }
-            .padding(16.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .clip(CircleShape)
                 .background(VpnColors.surfaceInner)
                 .border(1.dp, VpnColors.borderLight, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             if (server != null) {
-                Text(text = server.flag, fontSize = 20.sp)
+                Text(text = server.flag, fontSize = 22.sp)
             } else {
                 Icon(
                     imageVector = Icons.Default.Public,
@@ -500,36 +536,70 @@ private fun ServerSelectorCard(server: Server?, onClick: () -> Unit) {
         Spacer(modifier = Modifier.width(16.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = server?.name ?: Trans.get("select_server"),
-                style = VpnTypography.cardTitle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = server?.name ?: Trans.get("select_server"),
+                    style = VpnTypography.cardTitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (server != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(VpnColors.accentGreen.copy(alpha = 0.15f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = server.protocol,
+                            style = VpnTypography.cardSubtitle.copy(fontSize = 10.sp, color = VpnColors.accentGreen),
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
             if (server != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "IP ${server.address}",
                         style = VpnTypography.cardSubtitle,
+                        color = VpnColors.TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     PingBars(latency = server.latency)
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = if (server.latency > 0) "${server.latency} ms" else "— ms",
                         style = VpnTypography.cardSubtitle,
                         color = if (server.latency > 0) pingColor else VpnColors.TextSecondary
                     )
                 }
+            } else {
+                Text(
+                    text = Trans.get("select_server"),
+                    style = VpnTypography.cardSubtitle,
+                    color = VpnColors.TextSecondary
+                )
             }
         }
 
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = VpnColors.TextSecondary,
-            modifier = Modifier.size(24.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(VpnColors.accentGreen.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = VpnColors.accentGreen,
+                modifier = Modifier.size(22.dp)
+            )
+        }
     }
 }

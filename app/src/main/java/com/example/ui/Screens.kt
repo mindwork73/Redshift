@@ -80,7 +80,7 @@ fun MainAppContainer() {
                 .background(MainBackgroundBrush)
         ) {
             if (!RedShiftState.isOnboarded) {
-                OnboardingScreen(onFinished = { RedShiftState.isOnboarded = true })
+                OnboardingScreenPremium(onFinished = { RedShiftState.isOnboarded = true })
             } else {
                 var currentTab by remember { mutableStateOf("dashboard") }
                 var showAddServerSheet by remember { mutableStateOf(false) }
@@ -122,7 +122,7 @@ fun MainAppContainer() {
                                     onOpenHome = { currentTab = "dashboard" },
                                     onOpenSettings = { currentTab = "settings" }
                                 )
-                                "settings" -> SettingsScreen()
+                                "settings" -> SettingsScreenPremium()
                             }
                         }
                     }
@@ -349,11 +349,20 @@ fun CyberBottomBar(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .shadow(
+                20.dp,
+                RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                ambientColor = Color.Black.copy(alpha = 0.5f),
+                spotColor = VpnColors.accentGreen.copy(alpha = 0.12f)
+            )
             .windowInsetsPadding(WindowInsets.navigationBars),
-        color = VpnColors.SurfaceNav
+        color = VpnColors.SurfaceNav.copy(alpha = 0.75f)
     ) {
         Column {
-            HorizontalDivider(color = Color.White.copy(alpha = 0.06f), thickness = 1.dp)
+            HorizontalDivider(
+                color = VpnColors.accentGreen.copy(alpha = 0.35f),
+                thickness = 1.dp
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -398,11 +407,12 @@ fun RowScope.BottomNavItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val tint = if (isSelected) VpnColors.AccentPurple else VpnColors.TextSecondary.copy(alpha = 0.7f)
+    val tint = if (isSelected) VpnColors.accentGreen else VpnColors.TextSecondary.copy(alpha = 0.7f)
 
     Column(
         modifier = modifier
             .weight(1f)
+            .clip(RoundedCornerShape(16.dp))
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
@@ -415,8 +425,26 @@ fun RowScope.BottomNavItem(
         Box(
             modifier = Modifier
                 .height(30.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (isSelected) VpnColors.AccentPurple.copy(alpha = 0.16f) else Color.Transparent)
+                .clip(RoundedCornerShape(12.dp))
+                .then(
+                    if (isSelected) {
+                        Modifier.background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    VpnColors.accentGreen.copy(alpha = 0.28f),
+                                    VpnColors.accentGreen.copy(alpha = 0.10f)
+                                )
+                            )
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .border(
+                    1.dp,
+                    if (isSelected) VpnColors.accentGreen.copy(alpha = 0.45f) else Color.Transparent,
+                    RoundedCornerShape(12.dp)
+                )
                 .padding(horizontal = 13.dp),
             contentAlignment = Alignment.Center
         ) {

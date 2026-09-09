@@ -859,6 +859,72 @@ object Trans {
             "uk" to "Без логів. Твої ключі, правила та конфігурації зберігаються лише на твоєму пристрої.",
             "kk" to "Журналдарсыз. Сіздің кілттеріңіз бен баптауларыңыз тек құрылғыңызда сақталады.",
             "he" to "אפס יומנים. המפתחות, החוקים והגדרות הרשת שלך נשמרים בבטחה על המכשיר."
+        ),
+        "management" to mapOf(
+            "en" to "Management", "ru" to "Управление", "zh-CN" to "管理", "zh-TW" to "管理", "fa" to "مدیریت",
+            "es" to "Gestión", "fr" to "Gestion", "de" to "Verwaltung", "ja" to "管理", "ko" to "관리",
+            "ar" to "الإدارة", "tr" to "Yönetim", "vi" to "Quản lý", "id" to "Manajemen", "hi" to "प्रबंधन",
+            "pt-BR" to "Gerenciamento", "it" to "Gestione", "uk" to "Керування", "kk" to "Басқару", "he" to "ניהול"
+        ),
+        "admin_panel" to mapOf(
+            "en" to "Admin Panel", "ru" to "Панель управления", "zh-CN" to "管理面板", "zh-TW" to "管理面板", "fa" to "پنل مدیریت",
+            "es" to "Panel de administración", "fr" to "Panneau d'administration", "de" to "Adminbereich", "ja" to "管理パネル", "ko" to "관리자 패널",
+            "ar" to "لوحة الإدارة", "tr" to "Yönetim Paneli", "vi" to "Bảng quản trị", "id" to "Panel Admin", "hi" to "एडमिन पैनल",
+            "pt-BR" to "Painel do Administrador", "it" to "Pannello di amministrazione", "uk" to "Панель керування", "kk" to "Әкімшілік панель", "he" to "לוח ניהול"
+        ),
+        "users" to mapOf(
+            "en" to "Users", "ru" to "Пользователи", "zh-CN" to "用户", "zh-TW" to "用戶", "fa" to "کاربران",
+            "es" to "Usuarios", "fr" to "Utilisateurs", "de" to "Benutzer", "ja" to "ユーザー", "ko" to "사용자",
+            "ar" to "المستخدمون", "tr" to "Kullanıcılar", "vi" to "Người dùng", "id" to "Pengguna", "hi" to "उपयोगकर्ता",
+            "pt-BR" to "Usuários", "it" to "Utenti", "uk" to "Користувачі", "kk" to "Пайдаланушылар", "he" to "משתמשים"
+        ),
+        "active" to mapOf(
+            "en" to "Active", "ru" to "Активные", "zh-CN" to "活跃", "zh-TW" to "活躍", "fa" to "فعال",
+            "es" to "Activos", "fr" to "Actifs", "de" to "Aktiv", "ja" to "アクティブ", "ko" to "활성",
+            "ar" to "النشط", "tr" to "Aktif", "vi" to "Hoạt động", "id" to "Aktif", "hi" to "सक्रिय",
+            "pt-BR" to "Ativos", "it" to "Attivi", "uk" to "Активні", "kk" to "Белсенді", "he" to "פעילים"
+        ),
+        "devices" to mapOf(
+            "en" to "Devices", "ru" to "Устройства", "zh-CN" to "设备", "zh-TW" to "設備", "fa" to "دستگاه‌ها",
+            "es" to "Dispositivos", "fr" to "Appareils", "de" to "Geräte", "ja" to "デバイス", "ko" to "기기",
+            "ar" to "الأجهزة", "tr" to "Cihazlar", "vi" to "Thiết bị", "id" to "Perangkat", "hi" to "डिवाइस",
+            "pt-BR" to "Dispositivos", "it" to "Dispositivi", "uk" to "Пристрої", "kk" to "Құрылғылар", "he" to "מכשירים"
+        ),
+        "grant_access" to mapOf(
+            "en" to "Grant Access", "ru" to "Выдать доступ", "zh-CN" to "授予访问权限", "zh-TW" to "授予存取權限", "fa" to "اعطای دسترسی",
+            "es" to "Otorgar acceso", "fr" to "Accorder l'accès", "de" to "Zugriff gewähren", "ja" to "アクセスを付与", "ko" to "액세스 부여",
+            "ar" to "منح الوصول", "tr" to "Erişim Ver", "vi" to "Cấp quyền truy cập", "id" to "Berikan Akses", "hi" to "पहुंच दें",
+            "pt-BR" to "Conceder Acesso", "it" to "Concedi accesso", "uk" to "Видати доступ", "kk" to "Қолжетімділік беру", "he" to "הענק גישה"
+        ),
+        "user_id" to mapOf(
+            "en" to "User ID", "ru" to "ID пользователя", "zh-CN" to "用户 ID", "zh-TW" to "用戶 ID", "fa" to "شناسه کاربر",
+            "es" to "ID de usuario", "fr" to "ID utilisateur", "de" to "Benutzer-ID", "ja" to "ユーザーID", "ko" to "사용자 ID",
+            "ar" to "معرف المستخدم", "tr" to "Kullanıcı Kimliği", "vi" to "ID người dùng", "id" to "ID Pengguna", "hi" to "यूज़र आईडी",
+            "pt-BR" to "ID do Usuário", "it" to "ID utente", "uk" to "ID користувача", "kk" to "Пайдаланушы ID", "he" to "מזהה משתמש"
+        ),
+        "days" to mapOf(
+            "en" to "Days", "ru" to "Дни", "zh-CN" to "天数", "zh-TW" to "天數", "fa" to "روز",
+            "es" to "Días", "fr" to "Jours", "de" to "Tage", "ja" to "日数", "ko" to "일",
+            "ar" to "أيام", "tr" to "Gün", "vi" to "Ngày", "id" to "Hari", "hi" to "दिन",
+            "pt-BR" to "Dias", "it" to "Giorni", "uk" to "Дні", "kk" to "Күн", "he" to "ימים"
+        ),
+        "recent_users" to mapOf(
+            "en" to "Recent Users", "ru" to "Недавние пользователи", "zh-CN" to "最近用户", "zh-TW" to "最近用戶", "fa" to "کاربران اخیر",
+            "es" to "Usuarios recientes", "fr" to "Utilisateurs récents", "de" to "Letzte Benutzer", "ja" to "最近のユーザー", "ko" to "최근 사용자",
+            "ar" to "المستخدمون الأخيرون", "tr" to "Son Kullanıcılar", "vi" to "Người dùng gần đây", "id" to "Pengguna Terakhir", "hi" to "हाल के उपयोगकर्ता",
+            "pt-BR" to "Usuários Recentes", "it" to "Utenti recenti", "uk" to "Нещодавні користувачі", "kk" to "Соңғы пайдаланушылар", "he" to "משתמשים אחרונים"
+        ),
+        "none" to mapOf(
+            "en" to "none", "ru" to "нет", "zh-CN" to "无", "zh-TW" to "無", "fa" to "ندارد",
+            "es" to "ninguno", "fr" to "aucun", "de" to "keine", "ja" to "なし", "ko" to "없음",
+            "ar" to "بدون", "tr" to "yok", "vi" to "không có", "id" to "tidak ada", "hi" to "कोई नहीं",
+            "pt-BR" to "nenhum", "it" to "nessuno", "uk" to "немає", "kk" to "жоқ", "he" to "אין"
+        ),
+        "dev" to mapOf(
+            "en" to "Dev", "ru" to "Устр.", "zh-CN" to "设备", "zh-TW" to "設備", "fa" to "دستگاه",
+            "es" to "Disc.", "fr" to "App.", "de" to "Ger.", "ja" to "端末", "ko" to "기기",
+            "ar" to "أجهزة", "tr" to "Cih.", "vi" to "T.bị", "id" to "Per.", "hi" to "डिवि.",
+            "pt-BR" to "Disc.", "it" to "Disc.", "uk" to "Пристр.", "kk" to "Құр.", "he" to "התק"
         )
     )
 
