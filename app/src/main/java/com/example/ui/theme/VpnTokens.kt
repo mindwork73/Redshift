@@ -7,83 +7,103 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Design tokens for the premium dark VPN home screen.
- * Reuses the existing palette values so the rest of the app stays in sync.
- */
 object VpnColors {
-    val Background = CyberBackground
-    val BackgroundTop = Color(0xFF061426)
-    val BackgroundDeep = CyberBackgroundDeep
+    val Background = BackgroundNavy
+    val BackgroundTop = BackgroundNavy
+    val BackgroundMid = BackgroundNavyMid
+    val BackgroundDeep = BackgroundNavyDeep
 
-    val Surface = CyberCard
-    val SurfaceElevated = CyberElevated
-    val SurfaceNav = Color(0xFF172238)
-    val SurfaceButton = VpnSurfaceTertiary
+    val Surface = SurfaceGlass
+    val SurfaceElevated = SurfaceElevated
+    val SurfaceNav = Color(0xDD0A111B)
+    val SurfaceButton = SurfaceInner
 
     val TextPrimary = com.example.ui.theme.TextPrimary
     val TextSecondary = com.example.ui.theme.TextSecondary
     val TextMuted = com.example.ui.theme.TextMuted
 
-    val Success = SuccessGreen
+    val Success = StatusGreen
     val SuccessDark = Color(0xFF1D7D45)
-    val Warning = WarningAmber
-    val Error = ErrorRed
+    val Warning = StatusAmber
+    val Error = StatusRed
 
-    val AccentBlue = PremiumBlue
-    val AccentPurple = PremiumPurple
-    val BrandCyan = Color(0xFF25B9FF)
+    val AccentBlue = com.example.ui.theme.AccentBlue
+    val AccentPurple = com.example.ui.theme.AccentBlue
+    val BrandCyan = AccentCyan
 
-    val Divider = VpnDivider
-    val Icon = Color(0xFFF7F9FC)
+    val Divider = BorderNavy
+    val Icon = Color(0xFFE8E8F0)
 
-    // Home redesign (from AI reference spec)
+    // Glass system
     val surfaceGlass = SurfaceGlass
+    val surfaceGlassLight = SurfaceGlassLight
+    val surfaceGlassBright = SurfaceGlassBright
     val surfaceInner = SurfaceInner
-    val borderLight = BorderGraphite
-    val accentGreen = AccentNeonGreen
-    val accentWarning = AccentWarning
-    val accentError = AccentError
-    val premiumGradient = listOf(PremiumStart, PremiumEnd)
+    val surfaceCard = SurfaceCard
+    val borderLight = BorderNavy
+    val borderGlass = BorderGlass
 
-    // Servers screen (from AI reference spec)
-    val surfaceCardSolid = SurfaceCardSolid
-    val textTertiary = TextTertiary
+    // Accents (Red Pill primary, Blue secondary)
+    val accentPrimary = AccentRed           // Red Pill
+    val accentPrimarySoft = AccentRedSoft
+    val accentPrimaryGlow = AccentRedGlow
+    val accentSecondary = AccentBlue        // Blue
+    val accentSecondarySoft = AccentBlueSoft
+    val accentSecondaryGlow = AccentBlueGlow
+
+    // Legacy compat aliases
+    val accentGreen = AccentRed
+    val accentGreenSoft = AccentRedSoft
+    val accentGreenGlow = AccentRedGlow
+    val accentWarning = StatusAmber
+    val accentError = StatusRed
+    val premiumGradient = listOf(AccentRed, AccentBlue)
+
+    val surfaceCardSolid = SurfaceCard
+    val textTertiary = TextMuted
+
+    // Planet
+    val planetOcean = BackgroundNavy
+    val planetLand = SurfaceCard
+    val planetAtmosphere = AccentBlueGlow
+    val planetGlow = AccentBlueGlow
+    val spaceDark = BackgroundNavyDeep
 }
 
 object VpnDimensions {
     val ScreenPaddingCompact = 16.dp
     val ScreenPaddingDefault = 22.dp
 
-    val RadiusSmall = 16.dp
-    val RadiusMedium = 24.dp
-    val RadiusLarge = 30.dp
+    val RadiusSmall = 14.dp
+    val RadiusMedium = 20.dp
+    val RadiusLarge = 28.dp
     val RadiusXLarge = 36.dp
 
     val TopBarHeight = 56.dp
-    val BottomNavHeight = 76.dp
+    val BottomNavHeight = 72.dp
 
-    val PowerButtonCompact = 148.dp
-    val PowerButtonDefault = 164.dp
-    val PowerButtonWide = 176.dp
+    val PowerButtonCompact = 120.dp
+    val PowerButtonDefault = 140.dp
+    val PowerButtonWide = 160.dp
 
     val FloatingCardMinHeight = 104.dp
     val ServerCardMinHeight = 84.dp
     val ConnectTouchTarget = 48.dp
+
+    val PlanetSize = 280.dp
+    val PlanetGlowSpread = 40.dp
 }
 
 object VpnTypography {
     val TimerSemiCompact = 42.sp
     val TimerDefault = 48.sp
-
     val StatusBig = 20.sp
     val StatusConnecting = 20.sp
     val Endpoint = 15.sp
     val SecurityLabel = 16.sp
 
-    // Home redesign styles (from AI reference spec)
     val timer = TextStyle(
-        fontSize = 42.sp,
+        fontSize = 44.sp,
         fontWeight = FontWeight.Bold,
         color = TextPrimary,
         fontFeatureSettings = "tnum"
@@ -100,7 +120,7 @@ object VpnTypography {
     val statusSecured = TextStyle(
         fontSize = 12.sp,
         fontWeight = FontWeight.Medium,
-        color = AccentNeonGreen
+        color = StatusGreen
     )
     val cardTitle = TextStyle(
         fontSize = 16.sp,
@@ -136,22 +156,25 @@ object VpnTypography {
 
 val MainBackgroundBrush = Brush.verticalGradient(
     colors = listOf(
-        VpnColors.BackgroundTop,
-        VpnColors.Background,
-        VpnColors.BackgroundDeep
+        BackgroundNavy,
+        BackgroundNavyMid,
+        BackgroundNavyDeep
     )
 )
 
 val AccentBrush = Brush.horizontalGradient(
-    colors = listOf(VpnColors.AccentBlue, VpnColors.AccentPurple)
+    colors = listOf(AccentRed, AccentBlue)
 )
 
-/** Ping quality color thresholds (shared with server lists when applicable). */
+val RedAccentBrush = Brush.horizontalGradient(
+    colors = listOf(AccentRed, AccentRedBright)
+)
+
 fun pingQualityColor(pingMs: Int): Color {
     if (pingMs <= 0) return VpnColors.TextMuted
     return when {
-        pingMs < 50 -> VpnColors.Success
-        pingMs < 150 -> VpnColors.Warning
-        else -> VpnColors.Error
+        pingMs < 50 -> StatusGreen
+        pingMs < 150 -> StatusAmber
+        else -> StatusRed
     }
 }

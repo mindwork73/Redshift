@@ -10,12 +10,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -34,22 +30,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.core.content.ContextCompat
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -59,7 +46,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 import android.app.Activity
@@ -82,7 +68,6 @@ fun MainAppContainer() {
             } else {
                 var currentTab by remember { mutableStateOf("dashboard") }
                 var showAddServerSheet by remember { mutableStateOf(false) }
-                val isAdmin = RedShiftState.apiAdminToken.isNotEmpty()
 
                 Scaffold(
                     bottomBar = {
@@ -148,7 +133,7 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MainBackgroundBrush)
+            .background(BackgroundGraphite)
     ) {
         HomeScreenContent(
             onAddServerClick = onAddServerClick,
@@ -160,9 +145,9 @@ fun HomeScreen(
 @Composable
 fun PingBars(latency: Int) {
     val color = when {
-        latency <= 50 -> SuccessGreen
-        latency <= 150 -> AmberWarning
-        else -> ErrorRed
+        latency <= 50 -> AccentNeonGreen
+        latency <= 150 -> AccentWarning
+        else -> AccentError
     }
     Row(
         verticalAlignment = Alignment.Bottom,
@@ -198,17 +183,17 @@ fun CyberBottomBar(
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
-                20.dp,
-                RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                ambientColor = Color.Black.copy(alpha = 0.5f),
-                spotColor = VpnColors.accentGreen.copy(alpha = 0.12f)
+                24.dp,
+                RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                ambientColor = Color.Black.copy(alpha = 0.6f),
+                spotColor = AccentNeonGreen.copy(alpha = 0.06f)
             )
             .windowInsetsPadding(WindowInsets.navigationBars),
-        color = VpnColors.SurfaceNav.copy(alpha = 0.75f)
+        color = Color(0xDD0F1117)
     ) {
         Column {
             HorizontalDivider(
-                color = VpnColors.accentGreen.copy(alpha = 0.35f),
+                color = BorderGraphite.copy(alpha = 0.6f),
                 thickness = 1.dp
             )
             Row(
@@ -255,7 +240,7 @@ fun RowScope.BottomNavItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val tint = if (isSelected) VpnColors.accentGreen else VpnColors.TextSecondary.copy(alpha = 0.7f)
+    val tint = if (isSelected) AccentNeonGreen else TextMuted.copy(alpha = 0.7f)
 
     Column(
         modifier = modifier
@@ -268,48 +253,27 @@ fun RowScope.BottomNavItem(
             )
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
     ) {
         Box(
             modifier = Modifier
-                .height(30.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .then(
-                    if (isSelected) {
-                        Modifier.background(
-                            Brush.horizontalGradient(
-                                listOf(
-                                    VpnColors.accentGreen.copy(alpha = 0.28f),
-                                    VpnColors.accentGreen.copy(alpha = 0.10f)
-                                )
-                            )
-                        )
-                    } else {
-                        Modifier
-                    }
-                )
-                .border(
-                    1.dp,
-                    if (isSelected) VpnColors.accentGreen.copy(alpha = 0.45f) else Color.Transparent,
-                    RoundedCornerShape(12.dp)
-                )
-                .padding(horizontal = 13.dp),
+                .background(if (isSelected) AccentNeonGreen.copy(alpha = 0.1f) else Color.Transparent)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = tint,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
-        Spacer(modifier = Modifier.height(3.dp))
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = label,
             color = tint,
-            fontSize = 11.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            maxLines = 1
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium
         )
     }
 }
@@ -366,7 +330,10 @@ fun ServersScreen(
     }
 
     if (!loggedIn && RedShiftState.servers.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(BackgroundGraphite),
+            contentAlignment = Alignment.Center
+        ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -395,123 +362,124 @@ fun AddServerModalSheet(
     onAdded: () -> Unit
 ) {
     val context = LocalContext.current
-    var activeTab by remember { mutableStateOf(0) }
-
+    var isManualMode by remember { mutableStateOf(false) }
     var remarkName by remember { mutableStateOf("") }
-    var selectedProtocol by remember { mutableStateOf("VLESS") }
     var address by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("443") }
-    var uuidPassword by remember { mutableStateOf("") }
+    var selectedProtocol by remember { mutableStateOf("VLESS") }
+    var credential by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
-    var encryption by remember { mutableStateOf("auto") }
-    var transport by remember { mutableStateOf("tcp") }
     var tlsEnabled by remember { mutableStateOf(true) }
     var sni by remember { mutableStateOf("") }
     var allowInsecure by remember { mutableStateOf(false) }
-    var networkType by remember { mutableStateOf("ipv4") }
-
     var subscriptionUrl by remember { mutableStateOf("") }
     var autoDetect by remember { mutableStateOf(true) }
-    var updateInterval by remember { mutableStateOf("24h") }
+    var updateInterval by remember { mutableStateOf("6h") }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = CyberElevated,
-        scrimColor = Color.Black.copy(alpha = 0.6f)
+        containerColor = BackgroundGraphiteMid,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .width(40.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(BorderGraphite)
+            )
+        }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .heightIn(max = 640.dp)
+                .padding(horizontal = 24.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(modifier = Modifier.fillMaxWidth()) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = Trans.get("tab_add_server"),
+                    style = VpnTypography.statusMain.copy(fontSize = 22.sp, color = TextPrimary)
+                )
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .clickable { activeTab = 0 }
-                        .drawBehind {
-                            if (activeTab == 0) {
-                                drawLine(
-                                    color = RedPrimary,
-                                    start = Offset(0f, this@drawBehind.size.height),
-                                    end = Offset(this@drawBehind.size.width, this@drawBehind.size.height),
-                                    strokeWidth = 3.dp.toPx()
-                                )
-                            }
-                        }
-                        .padding(vertical = 12.dp),
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceInner)
+                        .border(1.dp, BorderGraphite, CircleShape)
+                        .clickable { onDismiss() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = Trans.get("manual_config"),
-                        color = if (activeTab == 0) RedPrimary else TextSecondary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { activeTab = 1 }
-                        .drawBehind {
-                            if (activeTab == 1) {
-                                drawLine(
-                                    color = RedPrimary,
-                                    start = Offset(0f, this@drawBehind.size.height),
-                                    end = Offset(this@drawBehind.size.width, this@drawBehind.size.height),
-                                    strokeWidth = 3.dp.toPx()
-                                )
-                            }
-                        }
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = Trans.get("subscription"),
-                        color = if (activeTab == 1) RedPrimary else TextSecondary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = TextSecondary, modifier = Modifier.size(18.dp))
                 }
             }
 
-            if (activeTab == 0) {
+            // Mode Toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SurfaceInner)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                listOf("Subscription" to false, "Manual" to true).forEach { (label, mode) ->
+                    val isSel = isManualMode == mode
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (isSel) Brush.horizontalGradient(VpnColors.premiumGradient)
+                                else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
+                            )
+                            .clickable { isManualMode = mode }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSel) Color.White else TextSecondary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            if (isManualMode) {
+                // Manual server entry
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
                         value = remarkName,
                         onValueChange = { remarkName = it },
-                        label = { Text("Remark Name") },
-                        placeholder = { Text("My Server") },
+                        label = { Text("Server Name") },
+                        placeholder = { Text("My Private Node") },
                         colors = outlinedTextFieldColors(),
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(CyberCard)
-                            .border(1.dp, TextMuted, RoundedCornerShape(10.dp))
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Protocol", color = TextSecondary, fontSize = 14.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("VLESS", "VMess", "Trojan", "Shadowsocks").forEach { proto ->
-                                val isSel = selectedProtocol == proto
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isSel) RedPrimary else Color.Transparent)
-                                        .clickable { selectedProtocol = proto }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text(proto, color = if (isSel) Color.White else TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("VLESS", "Trojan", "VMess", "SS").forEach { p ->
+                            val isSel = selectedProtocol == p
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSel) AccentNeonGreen.copy(alpha = 0.15f) else SurfaceInner)
+                                    .border(1.dp, if (isSel) AccentNeonGreen else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .clickable { selectedProtocol = p }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(p, color = if (isSel) AccentNeonGreen else TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -520,7 +488,7 @@ fun AddServerModalSheet(
                         value = address,
                         onValueChange = { address = it },
                         label = { Text("Address") },
-                        placeholder = { Text("example.com or 192.168.1.1") },
+                        placeholder = { Text("example.com or 1.2.3.4") },
                         colors = outlinedTextFieldColors(),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -529,14 +497,13 @@ fun AddServerModalSheet(
                         value = port,
                         onValueChange = { port = it },
                         label = { Text("Port") },
-                        placeholder = { Text("443") },
                         colors = outlinedTextFieldColors(),
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     OutlinedTextField(
-                        value = uuidPassword,
-                        onValueChange = { uuidPassword = it },
+                        value = credential,
+                        onValueChange = { credential = it },
                         label = { Text("UUID / Password") },
                         placeholder = { Text("Enter UUID or password") },
                         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -561,7 +528,13 @@ fun AddServerModalSheet(
                         Switch(
                             checked = tlsEnabled,
                             onCheckedChange = { tlsEnabled = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = RedPrimary)
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = BackgroundGraphite,
+                                checkedTrackColor = AccentNeonGreen,
+                                uncheckedThumbColor = TextSecondary,
+                                uncheckedTrackColor = SurfaceInner,
+                                uncheckedBorderColor = BorderGraphite
+                            )
                         )
                     }
 
@@ -570,7 +543,7 @@ fun AddServerModalSheet(
                             value = sni,
                             onValueChange = { sni = it },
                             label = { Text("SNI") },
-                            placeholder = { Text("sni.redpillcloud.ru") },
+                            placeholder = { Text("sni.example.com") },
                             colors = outlinedTextFieldColors(),
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -584,37 +557,55 @@ fun AddServerModalSheet(
                             Switch(
                                 checked = allowInsecure,
                                 onCheckedChange = { allowInsecure = it },
-                                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = RedPrimary)
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = BackgroundGraphite,
+                                    checkedTrackColor = AccentWarning,
+                                    uncheckedThumbColor = TextSecondary,
+                                    uncheckedTrackColor = SurfaceInner,
+                                    uncheckedBorderColor = BorderGraphite
+                                )
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    CyberButton(
-                        text = Trans.get("add_server_btn"),
-                        onClick = {
-                            if (remarkName.isEmpty()) remarkName = "Manual Node"
-                            RedShiftState.servers.add(
-                                Server(
-                                    id = "manual_" + System.currentTimeMillis(),
-                                    flag = "⚙",
-                                    name = remarkName,
-                                    protocol = selectedProtocol,
-                                    address = address.ifEmpty { "127.0.0.1" },
-                                    port = port.toIntOrNull() ?: 443,
-                                    latency = 35,
-                                    usedTraffic = 0.0,
-                                    totalTraffic = 10.0,
-                                    isCustom = true
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(Brush.horizontalGradient(VpnColors.premiumGradient))
+                            .clickable {
+                                if (remarkName.isEmpty()) remarkName = "Manual Node"
+                                RedShiftState.servers.add(
+                                    Server(
+                                        id = "manual_" + System.currentTimeMillis(),
+                                        flag = "⚙",
+                                        name = remarkName,
+                                        protocol = selectedProtocol,
+                                        address = address.ifEmpty { "127.0.0.1" },
+                                        port = port.toIntOrNull() ?: 443,
+                                        latency = 35,
+                                        usedTraffic = 0.0,
+                                        totalTraffic = 10.0,
+                                        isCustom = true
+                                    )
                                 )
-                            )
-                            onAdded()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                                onAdded()
+                            }
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = Trans.get("add_server_btn"),
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             } else {
+                // Subscription import
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         text = "Paste Subscription URL",
@@ -659,10 +650,10 @@ fun AddServerModalSheet(
                                 },
                                 modifier = Modifier
                                     .size(48.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(RedPrimary.copy(alpha = 0.15f))
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(AccentNeonGreen.copy(alpha = 0.12f))
                             ) {
-                                Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = RedPrimary, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = AccentNeonGreen, modifier = Modifier.size(20.dp))
                             }
                         }
                     }
@@ -676,7 +667,13 @@ fun AddServerModalSheet(
                         Switch(
                             checked = autoDetect,
                             onCheckedChange = { autoDetect = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = RedPrimary)
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = BackgroundGraphite,
+                                checkedTrackColor = AccentNeonGreen,
+                                uncheckedThumbColor = TextSecondary,
+                                uncheckedTrackColor = SurfaceInner,
+                                uncheckedBorderColor = BorderGraphite
+                            )
                         )
                     }
 
@@ -691,40 +688,55 @@ fun AddServerModalSheet(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSel) RedPrimary else CyberCard)
-                                    .border(0.5.dp, if (isSel) RedPrimary else TextMuted, RoundedCornerShape(8.dp))
+                                    .background(if (isSel) AccentNeonGreen.copy(alpha = 0.15f) else SurfaceInner)
+                                    .border(0.5.dp, if (isSel) AccentNeonGreen.copy(alpha = 0.4f) else BorderGraphite, RoundedCornerShape(8.dp))
                                     .clickable { updateInterval = interval }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(interval, color = if (isSel) Color.White else TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text(interval, color = if (isSel) AccentNeonGreen else TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    CyberButton(
-                        text = if (RedShiftState.isImporting) "Importing..." else "Import Subscription",
-                        onClick = {
-                            val url = subscriptionUrl.ifEmpty { "https://redpillcloud.ru/sub/rp_custom" }
-                            RedShiftState.importSubscription(url)
-                            onAdded()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !RedShiftState.isImporting
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(
+                                if (!RedShiftState.isImporting) Brush.horizontalGradient(VpnColors.premiumGradient)
+                                else Brush.horizontalGradient(listOf(TextMuted.copy(alpha = 0.5f), TextMuted.copy(alpha = 0.5f)))
+                            )
+                            .clickable(enabled = !RedShiftState.isImporting) {
+                                val url = subscriptionUrl.ifEmpty { "https://redpillcloud.ru/sub/rp_custom" }
+                                RedShiftState.importSubscription(url)
+                                onAdded()
+                            }
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (RedShiftState.isImporting) "Importing..." else "Import Subscription",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
                     if (RedShiftState.importError != null) {
                         Text(
                             text = "Error: ${RedShiftState.importError}",
-                            color = ErrorRed,
+                            color = AccentError,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(top = 4.dp)
                         )
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -732,12 +744,13 @@ fun AddServerModalSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun outlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = RedPrimary,
-    unfocusedBorderColor = TextMuted,
-    focusedLabelColor = RedPrimary,
+    focusedBorderColor = AccentNeonGreen,
+    unfocusedBorderColor = BorderGraphite,
+    focusedLabelColor = AccentNeonGreen,
     unfocusedLabelColor = TextSecondary,
     focusedTextColor = TextPrimary,
     unfocusedTextColor = TextPrimary,
-    cursorColor = RedPrimary
+    cursorColor = AccentNeonGreen,
+    focusedContainerColor = SurfaceInner,
+    unfocusedContainerColor = SurfaceInner
 )
-

@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,17 +31,19 @@ import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.VpnColors
-import com.example.ui.theme.VpnTypography
+import com.example.ui.theme.*
 
 @Composable
 fun ServersScreenPremium(
@@ -56,7 +59,7 @@ fun ServersScreenPremium(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(VpnColors.Background)
+            .background(BackgroundGraphite)
     ) {
         ServersTopBar(onBackClick, onSettingsClick)
 
@@ -96,10 +99,21 @@ fun ServersScreenPremium(
                             .padding(vertical = 40.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = Trans.get("empty_servers"),
-                            style = VpnTypography.cardSubtitle
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Public,
+                                contentDescription = null,
+                                tint = VpnColors.TextMuted,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Text(
+                                text = Trans.get("empty_servers"),
+                                style = VpnTypography.cardSubtitle
+                            )
+                        }
                     }
                 }
             }
@@ -107,13 +121,14 @@ fun ServersScreenPremium(
             items(servers) { server ->
                 ServerListItem(
                     server = server,
+                    isSelected = server.id == RedShiftState.selectedServerId,
                     onSelected = { onServerSelect(server) },
                     onConnect = {
                         onServerSelect(server)
                         onToggleConnection()
                     }
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
@@ -129,26 +144,42 @@ private fun ServersTopBar(onBackClick: () -> Unit, onSettingsClick: () -> Unit) 
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = Icons.Default.ArrowBackIosNew,
-            contentDescription = Trans.get("back"),
-            tint = VpnColors.TextPrimary,
+        Box(
             modifier = Modifier
-                .size(24.dp)
-                .clickable { onBackClick() }
-        )
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(SurfaceInner)
+                .border(1.dp, BorderGraphite, CircleShape)
+                .clickable { onBackClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowBackIosNew,
+                contentDescription = Trans.get("back"),
+                tint = VpnColors.TextPrimary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
         Text(
             text = Trans.get("tab_servers"),
             style = VpnTypography.statusMain.copy(color = VpnColors.TextPrimary)
         )
-        Icon(
-            imageVector = Icons.Default.Settings,
-            contentDescription = Trans.get("tab_settings"),
-            tint = VpnColors.TextPrimary,
+        Box(
             modifier = Modifier
-                .size(24.dp)
-                .clickable { onSettingsClick() }
-        )
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(SurfaceInner)
+                .border(1.dp, BorderGraphite, CircleShape)
+                .clickable { onSettingsClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = Trans.get("tab_settings"),
+                tint = VpnColors.TextPrimary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 
@@ -160,12 +191,35 @@ private fun ActiveServerHeroCard(
     uploadSpeed: Double,
     onToggle: () -> Unit
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "hero_glow")
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .background(VpnColors.surfaceGlass)
-            .border(1.dp, VpnColors.borderLight, RoundedCornerShape(24.dp))
+            .background(SurfaceGlass.copy(alpha = 0.85f))
+            .border(
+                1.dp,
+                if (isConnected) AccentNeonGreen.copy(alpha = glowAlpha) else BorderGraphite,
+                RoundedCornerShape(24.dp)
+            )
+            .drawBehind {
+                if (isConnected) {
+                    drawRoundRect(
+                        color = AccentNeonGreen.copy(alpha = 0.03f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(24.dp.toPx())
+                    )
+                }
+            }
             .padding(20.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -173,7 +227,12 @@ private fun ActiveServerHeroCard(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .background(VpnColors.surfaceInner),
+                    .background(SurfaceInner)
+                    .border(
+                        1.dp,
+                        if (isConnected) AccentNeonGreen.copy(alpha = 0.5f) else BorderGraphite,
+                        CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(text = server.flag, fontSize = 24.sp)
@@ -198,6 +257,8 @@ private fun ActiveServerHeroCard(
                         text = server.address,
                         style = VpnTypography.cardSubtitle
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    ProtocolBadge(protocol = server.protocol)
                 }
             }
         }
@@ -208,35 +269,35 @@ private fun ActiveServerHeroCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            StatItem(
+            ServersStatItem(
                 icon = Icons.Default.ArrowDownward,
                 label = Trans.get("download"),
                 value = if (isConnected) speedStr(downloadSpeed) else "0 KB/s",
-                iconTint = VpnColors.TextPrimary
+                iconTint = if (isConnected) AccentNeonGreen else VpnColors.TextPrimary
             )
             Box(
                 modifier = Modifier
                     .width(1.dp)
                     .height(32.dp)
-                    .background(VpnColors.borderLight)
+                    .background(BorderGraphite)
             )
-            StatItem(
+            ServersStatItem(
                 icon = Icons.Default.SignalCellularAlt,
                 label = Trans.get("ping"),
                 value = "${server.latency}ms",
-                iconTint = VpnColors.accentGreen
+                iconTint = pingQualityColor(server.latency)
             )
             Box(
                 modifier = Modifier
                     .width(1.dp)
                     .height(32.dp)
-                    .background(VpnColors.borderLight)
+                    .background(BorderGraphite)
             )
-            StatItem(
+            ServersStatItem(
                 icon = Icons.Default.ArrowUpward,
                 label = Trans.get("upload"),
                 value = if (isConnected) speedStr(uploadSpeed) else "0 KB/s",
-                iconTint = VpnColors.TextPrimary
+                iconTint = if (isConnected) AccentNeonGreen else VpnColors.TextPrimary
             )
         }
 
@@ -247,7 +308,15 @@ private fun ActiveServerHeroCard(
                 .fillMaxWidth()
                 .height(56.dp)
                 .clip(RoundedCornerShape(100.dp))
-                .background(VpnColors.surfaceInner)
+                .background(
+                    if (isConnected) AccentNeonGreen.copy(alpha = 0.12f)
+                    else Brush.horizontalGradient(VpnColors.premiumGradient)
+                )
+                .border(
+                    1.dp,
+                    if (isConnected) AccentNeonGreen.copy(alpha = 0.4f) else Color.Transparent,
+                    RoundedCornerShape(100.dp)
+                )
                 .clickable { onToggle() }
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -257,20 +326,25 @@ private fun ActiveServerHeroCard(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(Brush.horizontalGradient(VpnColors.premiumGradient)),
+                    .background(
+                        if (isConnected) AccentNeonGreen
+                        else Brush.horizontalGradient(VpnColors.premiumGradient)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.ArrowForward,
                     contentDescription = null,
-                    tint = VpnColors.TextPrimary,
+                    tint = if (isConnected) BackgroundGraphite else Color.White,
                     modifier = Modifier.size(20.dp)
                 )
             }
 
             Text(
                 text = if (isConnected) Trans.get("disconnect") else Trans.get("connect"),
-                style = VpnTypography.buttonText,
+                style = VpnTypography.buttonText.copy(
+                    color = if (isConnected) AccentNeonGreen else Color.White
+                ),
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 16.dp)
@@ -289,7 +363,7 @@ private fun ActiveServerHeroCard(
 }
 
 @Composable
-private fun StatItem(icon: ImageVector, label: String, value: String, iconTint: Color) {
+private fun ServersStatItem(icon: ImageVector, label: String, value: String, iconTint: Color) {
     Column(horizontalAlignment = Alignment.Start) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
@@ -309,54 +383,101 @@ private fun StatItem(icon: ImageVector, label: String, value: String, iconTint: 
 @Composable
 private fun ServerListItem(
     server: Server,
+    isSelected: Boolean,
     onSelected: () -> Unit,
     onConnect: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
-            .clickable { onSelected() },
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (isSelected) SurfaceGlass.copy(alpha = 0.9f)
+                else SurfaceInner.copy(alpha = 0.6f)
+            )
+            .border(
+                1.dp,
+                if (isSelected) AccentNeonGreen.copy(alpha = 0.4f) else BorderGraphite.copy(alpha = 0.5f),
+                RoundedCornerShape(16.dp)
+            )
+            .clickable { onSelected() }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(VpnColors.surfaceInner)
-                .border(1.dp, VpnColors.borderLight, CircleShape),
+                .background(SurfaceInner)
+                .border(
+                    1.dp,
+                    if (isSelected) AccentNeonGreen.copy(alpha = 0.3f) else BorderGraphite,
+                    CircleShape
+                ),
             contentAlignment = Alignment.Center
         ) {
             Text(text = server.flag, fontSize = 20.sp)
         }
 
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(14.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = server.name,
-                style = VpnTypography.cardTitle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "${Trans.get("protocol")}: ${server.protocol}",
-                style = VpnTypography.cardSubtitle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = server.name,
+                    style = VpnTypography.cardTitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (isSelected) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(AccentNeonGreen)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = server.protocol,
+                    style = VpnTypography.cardSubtitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "•",
+                    style = VpnTypography.cardSubtitle,
+                    color = VpnColors.TextMuted
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                LatencyBadge(ping = server.latency)
+            }
         }
 
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(100.dp))
-                .background(VpnColors.surfaceCardSolid)
+                .background(
+                    if (isSelected) AccentNeonGreen.copy(alpha = 0.15f)
+                    else SurfaceCardSolid
+                )
+                .border(
+                    0.5.dp,
+                    if (isSelected) AccentNeonGreen.copy(alpha = 0.4f) else Color.Transparent,
+                    RoundedCornerShape(100.dp)
+                )
                 .clickable { onConnect() }
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Text(
                 text = Trans.get("connect"),
-                style = VpnTypography.buttonText
+                style = VpnTypography.buttonText.copy(
+                    color = if (isSelected) AccentNeonGreen else VpnColors.TextPrimary
+                )
             )
         }
     }

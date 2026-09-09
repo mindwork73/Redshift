@@ -62,8 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.VpnColors
-import com.example.ui.theme.VpnTypography
+import com.example.ui.theme.*
 
 private enum class SettingsRoute { SUBSCRIPTIONS, ROUTING, ADMIN }
 
@@ -103,7 +102,7 @@ private fun SettingsPushedScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(VpnColors.Background)
+            .background(BackgroundGraphite)
     ) {
         Row(
             modifier = Modifier
@@ -115,8 +114,8 @@ private fun SettingsPushedScreen(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(CircleShape)
-                    .background(VpnColors.surfaceInner)
-                    .border(1.dp, VpnColors.borderLight, CircleShape)
+                    .background(SurfaceInner)
+                    .border(1.dp, BorderGraphite, CircleShape)
                     .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center
             ) {
@@ -147,7 +146,7 @@ private fun SettingsMainScreen(onOpen: (SettingsRoute) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(VpnColors.Background)
+            .background(BackgroundGraphite)
             .padding(horizontal = 24.dp)
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -225,125 +224,39 @@ private fun SettingsMainScreen(onOpen: (SettingsRoute) -> Unit) {
                                 RedShiftState.refreshUserData(RedShiftState.telegramToken.toIntOrNull() ?: 0)
                                 Toast.makeText(context, "Refreshed!", Toast.LENGTH_SHORT).show()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = VpnColors.surfaceInner, contentColor = VpnColors.TextPrimary),
+                            colors = ButtonDefaults.buttonColors(containerColor = SurfaceInner, contentColor = VpnColors.TextPrimary),
                             modifier = Modifier.height(36.dp)
                         ) {
-                            Text("↻", fontSize = 16.sp)
+                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Sync", style = VpnTypography.buttonText.copy(fontSize = 12.sp))
                         }
                         Button(
                             onClick = { RedShiftState.logout() },
-                            colors = ButtonDefaults.buttonColors(containerColor = VpnColors.accentError.copy(alpha = 0.15f), contentColor = VpnColors.accentError),
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentError.copy(alpha = 0.15f), contentColor = AccentError),
                             modifier = Modifier.height(36.dp)
                         ) {
-                            Text("Log Out", fontSize = 12.sp)
+                            Text("Logout", style = VpnTypography.buttonText.copy(fontSize = 12.sp))
                         }
                     }
                 }
             }
         }
 
-        // ─── Import Subscription ───
-        SettingsSectionHeader(title = "Import Subscription")
-        SettingsGlassCard {
-            var subUrl by remember { mutableStateOf(RedShiftState.subscriptionUrl) }
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = subUrl,
-                    onValueChange = { subUrl = it },
-                    placeholder = { Text("https://redpillcloud.ru/sub/...", color = VpnColors.TextSecondary) },
-                    colors = premiumTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(100.dp))
-                        .background(
-                            if (subUrl.isNotBlank() && !RedShiftState.isImporting) Brush.horizontalGradient(VpnColors.premiumGradient)
-                            else Brush.horizontalGradient(listOf(VpnColors.surfaceInner, VpnColors.surfaceInner))
-                        )
-                        .clickable(enabled = subUrl.isNotBlank() && !RedShiftState.isImporting) {
-                            RedShiftState.importSubscription(subUrl)
-                        }
-                        .padding(vertical = 14.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (RedShiftState.isImporting) "Importing..." else "Import",
-                        style = VpnTypography.buttonText,
-                        color = if (subUrl.isNotBlank() && !RedShiftState.isImporting) VpnColors.TextPrimary else VpnColors.TextSecondary
-                    )
-                }
-
-                if (RedShiftState.importError != null) {
-                    Text(text = "Error: ${RedShiftState.importError}", style = VpnTypography.cardSubtitle.copy(color = VpnColors.accentError))
-                }
-                if (RedShiftState.servers.isNotEmpty()) {
-                    Text("${RedShiftState.servers.size} servers loaded", style = VpnTypography.cardSubtitle.copy(color = VpnColors.accentGreen))
-                }
-            }
-        }
-
-        // ─── Subscription Auto-Refresh ───
-        SettingsSectionHeader(title = "Subscription Auto-Refresh")
-        SettingsGlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsToggleRow(
-                    icon = Icons.Default.Sync,
-                    title = "Auto-refresh",
-                    description = "Periodically fetch latest server config in background.",
-                    checked = RedShiftState.autoRefresh,
-                    onCheckedChange = { enabled ->
-                        RedShiftState.setAutoRefreshEnabled(enabled, RedShiftState.autoRefreshInterval)
-                    }
-                )
-                if (RedShiftState.autoRefresh) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Interval", style = VpnTypography.cardTitle)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(1, 3, 6, 12, 24).forEach { h ->
-                                val isSel = RedShiftState.autoRefreshInterval == h
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isSel) VpnColors.surfaceInner else Color.Transparent)
-                                        .border(1.dp, if (isSel) VpnColors.borderLight else Color.Transparent, RoundedCornerShape(8.dp))
-                                        .clickable { RedShiftState.setAutoRefreshEnabled(true, h) }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("${h}h", color = if (isSel) VpnColors.TextPrimary else VpnColors.TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // ─── Management (Subscriptions / Routing / Admin) ───
+        // ─── Subscriptions / Routing / Admin navigation ───
         SettingsSectionHeader(title = Trans.get("management"))
         SettingsGlassCard {
             SettingsNavRow(
                 icon = Icons.Outlined.Cloud,
                 title = Trans.get("tab_subscriptions"),
-                subtitle = "Manage imported subscription links.",
+                subtitle = "Manage imported VPN subscription links.",
                 onClick = { onOpen(SettingsRoute.SUBSCRIPTIONS) }
             )
             SettingsSectionDivider()
             SettingsNavRow(
                 icon = Icons.Outlined.Rule,
                 title = Trans.get("tab_rules"),
-                subtitle = "Split tunneling, bypass & custom rules.",
+                subtitle = "Configure proxy routing rules & bypass lists.",
                 onClick = { onOpen(SettingsRoute.ROUTING) }
             )
             if (isAdmin) {
@@ -351,40 +264,40 @@ private fun SettingsMainScreen(onOpen: (SettingsRoute) -> Unit) {
                 SettingsNavRow(
                     icon = Icons.Outlined.AdminPanelSettings,
                     title = Trans.get("admin_panel"),
-                    subtitle = "Manage users, grants & plans.",
+                    subtitle = "View users, stats, grant subscriptions.",
                     onClick = { onOpen(SettingsRoute.ADMIN) }
                 )
             }
         }
 
         // ─── Advanced ───
-        TextButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                if (showAdvanced) "▲ Hide Advanced Settings" else "▼ Advanced Settings",
-                color = VpnColors.TextSecondary,
-                fontSize = 13.sp
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(SurfaceInner.copy(alpha = 0.5f))
+                .clickable { showAdvanced = !showAdvanced }
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Advanced Settings", style = VpnTypography.cardTitle.copy(color = VpnColors.TextSecondary))
+                Icon(
+                    imageVector = if (showAdvanced) Icons.AutoMirrored.Filled.ArrowBack else Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = VpnColors.TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
 
         AnimatedVisibility(visible = showAdvanced) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                SettingsSectionHeader(title = "Connection Engine Settings")
+                SettingsSectionHeader(title = "Connection")
                 SettingsGlassCard {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Local Socks Port", style = VpnTypography.cardTitle)
-                            Text("Current port used for browser proxification.", style = VpnTypography.cardSubtitle)
-                        }
-                        Text(
-                            text = RedShiftState.localPort.toString(),
-                            style = VpnTypography.statusMain.copy(color = VpnColors.accentWarning)
-                        )
-                    }
-                    SettingsSectionDivider()
                     SettingsToggleRow(
                         icon = Icons.Outlined.Lan,
                         title = "Allow LAN Connections",
@@ -423,13 +336,13 @@ private fun SettingsMainScreen(onOpen: (SettingsRoute) -> Unit) {
     }
 }
 
-// ─── Вспомогательные компоненты для нового дизайна ───
+// ─── Helper Components ───
 
 @Composable
 private fun SettingsSectionHeader(title: String) {
     Text(
         text = title.uppercase(),
-        style = VpnTypography.statsLabel.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+        style = VpnTypography.statsLabel.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = AccentNeonGreen.copy(alpha = 0.7f)),
         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp, start = 4.dp)
     )
 }
@@ -443,8 +356,8 @@ private fun SettingsGlassCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(VpnColors.surfaceGlass)
-            .border(1.dp, VpnColors.borderLight, RoundedCornerShape(20.dp))
+            .background(SurfaceGlass.copy(alpha = 0.85f))
+            .border(1.dp, BorderGraphite, RoundedCornerShape(20.dp))
             .padding(16.dp)
     ) {
         Column(content = content)
@@ -454,7 +367,7 @@ private fun SettingsGlassCard(
 @Composable
 private fun SettingsSectionDivider() {
     HorizontalDivider(
-        color = VpnColors.borderLight,
+        color = BorderGraphite.copy(alpha = 0.5f),
         thickness = 1.dp,
         modifier = Modifier.padding(vertical = 4.dp)
     )
@@ -483,8 +396,8 @@ private fun SettingsToggleRow(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(VpnColors.surfaceInner)
-                    .border(1.dp, VpnColors.borderLight, CircleShape),
+                    .background(SurfaceInner)
+                    .border(1.dp, BorderGraphite, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(imageVector = icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(18.dp))
@@ -499,11 +412,11 @@ private fun SettingsToggleRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = VpnColors.Background,
-                checkedTrackColor = VpnColors.accentGreen,
-                uncheckedThumbColor = VpnColors.TextSecondary,
-                uncheckedTrackColor = VpnColors.surfaceInner,
-                uncheckedBorderColor = VpnColors.borderLight
+                checkedThumbColor = BackgroundGraphite,
+                checkedTrackColor = AccentNeonGreen,
+                uncheckedThumbColor = TextSecondary,
+                uncheckedTrackColor = SurfaceInner,
+                uncheckedBorderColor = BorderGraphite
             )
         )
     }
@@ -533,11 +446,11 @@ private fun SettingsNavRow(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(VpnColors.surfaceInner)
-                    .border(1.dp, VpnColors.borderLight, CircleShape),
+                    .background(SurfaceInner)
+                    .border(1.dp, BorderGraphite, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(imageVector = icon, contentDescription = null, tint = VpnColors.TextPrimary, modifier = Modifier.size(18.dp))
+                Icon(imageVector = icon, contentDescription = null, tint = AccentNeonGreen, modifier = Modifier.size(18.dp))
             }
             Column {
                 Text(text = title, style = VpnTypography.cardTitle)
@@ -574,11 +487,11 @@ private fun SettingsLanguageRow() {
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(VpnColors.surfaceInner)
-                        .border(1.dp, VpnColors.borderLight, CircleShape),
+                        .background(SurfaceInner)
+                        .border(1.dp, BorderGraphite, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Outlined.Translate, contentDescription = null, tint = VpnColors.TextPrimary, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Translate, contentDescription = null, tint = AccentNeonGreen, modifier = Modifier.size(18.dp))
                 }
                 Text(text = Trans.get("language"), style = VpnTypography.cardTitle)
             }
@@ -599,7 +512,7 @@ private fun SettingsLanguageRow() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) VpnColors.surfaceInner else Color.Transparent)
+                            .background(if (isSelected) AccentNeonGreen.copy(alpha = 0.08f) else Color.Transparent)
                             .clickable {
                                 RedShiftState.setLanguage(lang)
                                 expanded = false
@@ -622,13 +535,13 @@ private fun SettingsLanguageRow() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun premiumTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = VpnColors.TextPrimary,
-    unfocusedBorderColor = VpnColors.borderLight,
+    focusedBorderColor = AccentNeonGreen,
+    unfocusedBorderColor = BorderGraphite,
     focusedTextColor = VpnColors.TextPrimary,
     unfocusedTextColor = VpnColors.TextPrimary,
-    cursorColor = VpnColors.accentGreen,
-    focusedContainerColor = VpnColors.surfaceInner,
-    unfocusedContainerColor = VpnColors.surfaceInner
+    cursorColor = AccentNeonGreen,
+    focusedContainerColor = SurfaceInner,
+    unfocusedContainerColor = SurfaceInner
 )
 
 private fun premiumExpiryDisplay(raw: String): String {

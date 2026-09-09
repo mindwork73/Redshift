@@ -49,3 +49,4 @@ gradle-8.11.1/
 Redshift-Android/
 # Gradle distribution
 *.zip
+app_icons/
