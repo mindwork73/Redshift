@@ -20,13 +20,19 @@ class SingBoxConfigGenerator {
     }
 
     fun generateConfig(server: SubServer, socksPort: Int = 10808, filesDir: String = ""): String {
-        val isAwg = isAmneziaProtocol(server)
-        val outTag = server.id
+        // Endpoints must be IPv4 literals in the generated config: sing-box would
+        // otherwise resolve the peer/server domain through the tunnel's own DNS
+        // (remote-dns detours to this outbound), which is a chicken-and-egg deadlock
+        // while the tunnel is still being established (see: AWG handshake timeouts /
+        // "failed to resolve endpoints"). Resolve locally, before the TUN is up.
+        val cfgServer = server.copy(address = resolveHostToIp(server.address))
+        val isAwg = isAmneziaProtocol(cfgServer)
+        val outTag = cfgServer.id
 
-        val config = baseTunConfig(server)
-        config.put("dns", buildDnsConfig(server, filesDir))
+        val config = baseTunConfig(cfgServer)
+        config.put("dns", buildDnsConfig(cfgServer, filesDir))
         config.put("outbounds", JSONArray().apply {
-            put(if (isAwg) buildAmneziaWgOutbound(server) else buildOutbound(server))
+            put(if (isAwg) buildAmneziaWgOutbound(cfgServer) else buildOutbound(cfgServer))
             put(JSONObject().apply { put("type", "direct"); put("tag", "direct") })
             put(JSONObject().apply { put("type", "block"); put("tag", "block") })
         })
@@ -92,7 +98,19 @@ class SingBoxConfigGenerator {
     }
 
     private fun isIpAddress(value: String): Boolean {
-        return value.isNotEmpty() && value[0].isDigit() && value.contains('.')
+        return value.isNotEmpty() && value[0].isDigit() && (value.contains('.') || value.contains(':'))
+    }
+
+    private fun resolveHostToIp(host: String): String {
+        if (host.isBlank()) return host
+        if (host.first().isDigit() && (host.contains('.') || host.contains(':'))) return host
+        return try {
+            val addrs = java.net.InetAddress.getAllByName(host)
+            val ipv4 = addrs.firstOrNull { it is java.net.Inet4Address }
+            (ipv4 ?: addrs.firstOrNull())?.hostAddress ?: host
+        } catch (_: Exception) {
+            host
+        }
     }
 
     private fun buildDnsConfig(server: SubServer, filesDir: String): JSONObject {

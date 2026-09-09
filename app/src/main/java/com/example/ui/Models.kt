@@ -315,9 +315,13 @@ object RedShiftState {
         }
         scope.launch {
             store.userId.collect { uid ->
-                if (uid.isNotBlank()) {
+                if (uid.toIntOrNull() != null) {
                     telegramToken = uid
                     isLoggedIn = true
+                } else if (uid.isNotBlank()) {
+                    // Legacy garbage: an old build wrote a full vpn:// deeplink as the
+                    // user id. Never treat it as an account identifier.
+                    settingsStore?.setUserId("")
                 }
             }
         }
@@ -591,14 +595,15 @@ object RedShiftState {
             ConnectionState.CONNECTED, ConnectionState.CONNECTING -> {
                 connectionState = ConnectionState.DISCONNECTED
                 lastConfig = ""
-                if (singBoxManager?.isRunning() == true) {
-                    debugLog("stopping sing-box")
-                }
                 val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
                     action = RedShiftVpnService.ACTION_DISCONNECT
                 }
                 ctx.startService(intent)
-                singBoxManager?.stop()
+                // stop() joins the native run loop and can block for a while on some
+                // devices; never run it on the main thread (would ANR the UI).
+                scope.launch(Dispatchers.IO) {
+                    singBoxManager?.stop()
+                }
                 RedShiftVpnService.resetTunState()
                 stopTelemetrySimulation()
             }
@@ -670,8 +675,25 @@ object RedShiftState {
                 importError = result.error
                 debugLog("import FAILED: ${result.error}")
             } else if (result.servers.isNotEmpty()) {
+                val isSingleCustomLink = url.startsWith("vpn://") || url.startsWith("tt://")
                 val dbgFirst = result.servers.first()
                 debugLog("import OK: n=${result.servers.size} first=${dbgFirst.protocol} ${dbgFirst.address}:${dbgFirst.port} psk=${dbgFirst.presharedKey.isNotEmpty()} priv=${dbgFirst.privateKey.isNotEmpty()} srvPub=${dbgFirst.serverPublicKey.isNotEmpty()} awgParams=${if (dbgFirst.awgParams.isBlank()) "-" else "yes"}")
+
+                // A single custom node (Amnezia vpn:// deeplink et al.) is NOT a
+                // subscription: adding it must never touch the profile/user id or the
+                // cached server list of an already imported subscription.
+                if (isSingleCustomLink) {
+                    addServersFromSubResult(result.servers, url)
+                    val first = result.servers.first()
+                    if (servers.any { it.id == first.id }) {
+                        selectedServerId = first.id
+                        settingsStore?.let { it.setSelectedServerId(first.id) }
+                    }
+                    markServerUsed(first.id)
+                    isImporting = false
+                    return@launch
+                }
+
                 subscriptions.removeAll { it.url == url }
                 addServersFromSubResult(result.servers, url)
 
@@ -688,7 +710,8 @@ object RedShiftState {
                 val profile = result.profileInfo
                 if (profile != null) {
                     if (profile.expiry > 0) {
-                        val sdf = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.US)
+                        val locale = if (LocalizationState.currentLanguage == AppLanguage.RU) java.util.Locale.forLanguageTag("ru-RU") else java.util.Locale.US
+                        val sdf = java.text.SimpleDateFormat("dd MMM yyyy", locale)
                         subscriptionExpiry = sdf.format(java.util.Date(profile.expiry * 1000))
                     }
                     if (profile.total > 0) {

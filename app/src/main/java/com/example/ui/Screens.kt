@@ -77,7 +77,7 @@ fun MainAppContainer() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(CyberBackground)
+                .background(MainBackgroundBrush)
         ) {
             if (!RedShiftState.isOnboarded) {
                 OnboardingScreen(onFinished = { RedShiftState.isOnboarded = true })
@@ -114,7 +114,10 @@ fun MainAppContainer() {
                             label = "tab_navigation"
                         ) { tab ->
                             when (tab) {
-                                "dashboard" -> DashboardScreen(onAddServerClick = { showAddServerSheet = true })
+                                "dashboard" -> HomeScreen(
+                                    onAddServerClick = { showAddServerSheet = true },
+                                    onOpenServers = { currentTab = "servers" }
+                                )
                                 "servers" -> ServersScreen(onAddServerClick = { showAddServerSheet = true })
                                 "settings" -> SettingsScreen()
                             }
@@ -133,6 +136,66 @@ fun MainAppContainer() {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun HomeScreen(
+    onAddServerClick: () -> Unit,
+    onOpenServers: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MainBackgroundBrush)
+    ) {
+        HomeScreenContent(
+            onAddServerClick = onAddServerClick,
+            onOpenServers = onOpenServers
+        )
+    }
+}
+
+@Composable
+fun PingBars(latency: Int) {
+    val color = when {
+        latency <= 50 -> SuccessGreen
+        latency <= 150 -> AmberWarning
+        else -> ErrorRed
+    }
+    Row(
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        listOf(4.dp, 7.dp, 10.dp, 13.dp).forEach { h ->
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(h)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(color.copy(alpha = 0.8f))
+            )
+        }
+    }
+    Spacer(modifier = Modifier.width(6.dp))
+}
+
+fun speedStr(kbps: Double): String {
+    return if (kbps >= 1024) {
+        String.format("%.2f MB/s", kbps / 1024)
+    } else {
+        String.format("%.1f KB/s", kbps)
+    }
+}
+
+private fun expiryDisplay(raw: String): String {
+    if (raw.isBlank() || raw == "N/A") return "—"
+    return try {
+        val date = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.US).parse(raw) ?: return raw
+        val locale = if (LocalizationState.currentLanguage == AppLanguage.RU) java.util.Locale.forLanguageTag("ru-RU") else java.util.Locale.US
+        java.text.SimpleDateFormat("dd MMM yyyy", locale).format(date)
+    } catch (_: Exception) {
+        raw
     }
 }
 
@@ -283,17 +346,15 @@ fun CyberBottomBar(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .shadow(16.dp),
-        color = CyberCard,
-        tonalElevation = 8.dp
+            .windowInsetsPadding(WindowInsets.navigationBars),
+        color = VpnColors.SurfaceNav
     ) {
         Column {
-            HorizontalDivider(color = RedPrimary.copy(alpha = 0.2f), thickness = 1.dp)
+            HorizontalDivider(color = Color.White.copy(alpha = 0.06f), thickness = 1.dp)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -313,8 +374,7 @@ fun CyberBottomBar(
                     label = Trans.get("tab_add_server"),
                     icon = Icons.Default.AddCircle,
                     isSelected = false,
-                    onClick = { onTabSelected("add_server") },
-                    accentColor = RedPrimary
+                    onClick = { onTabSelected("add_server") }
                 )
                 BottomNavItem(
                     label = Trans.get("tab_settings"),
@@ -333,872 +393,212 @@ fun RowScope.BottomNavItem(
     icon: ImageVector,
     isSelected: Boolean,
     onClick: () -> Unit,
-    accentColor: Color = TextSecondary
+    modifier: Modifier = Modifier
 ) {
-    val activeColor = RedPrimary
-    val tintColor = if (isSelected) activeColor else TextSecondary
+    val tint = if (isSelected) VpnColors.AccentPurple else VpnColors.TextSecondary.copy(alpha = 0.7f)
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .weight(1f)
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onClick
             )
-            .padding(vertical = 4.dp),
+            .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Box(
             modifier = Modifier
-                .clip(CircleShape)
-                .background(if (isSelected) activeColor.copy(alpha = 0.15f) else Color.Transparent)
-                .padding(8.dp)
+                .height(30.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isSelected) VpnColors.AccentPurple.copy(alpha = 0.16f) else Color.Transparent)
+                .padding(horizontal = 13.dp),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = tintColor,
-                modifier = Modifier.size(20.dp)
+                tint = tint,
+                modifier = Modifier.size(22.dp)
             )
         }
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(3.dp))
         Text(
             text = label,
-            color = tintColor,
-            fontSize = 9.sp,
+            color = tint,
+            fontSize = 11.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1
         )
-        if (isSelected) {
-            Box(
-                modifier = Modifier
-                    .width(16.dp)
-                    .height(2.dp)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(RedPrimary)
-            )
-        } else {
-            Spacer(modifier = Modifier.height(2.dp))
-        }
     }
 }
 
+
 @Composable
-fun DashboardScreen(onAddServerClick: () -> Unit) {
-    val scrollState = rememberScrollState()
-    val connectionState = RedShiftState.connectionState
-    val selectedServer = RedShiftState.getSelectedServer()
-    val context = LocalContext.current
+fun ActiveServerCard(onToggle: () -> Unit) {
+    val server = RedShiftState.getSelectedServer() ?: return
+    val connected = RedShiftState.connectionState == ConnectionState.CONNECTED
+    val connecting = RedShiftState.connectionState == ConnectionState.CONNECTING
+    val active = connected || connecting
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xFF232F42), Color(0xFF151E2E))))
+            .border(0.5.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(28.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Top bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Brush.linearGradient(listOf(RedPrimary, RedGradientEnd))),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("RS", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Text("RedShift", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(
-                                when (connectionState) {
-                                    ConnectionState.CONNECTED -> SuccessGreen.copy(alpha = 0.15f)
-                                    ConnectionState.CONNECTING -> AmberWarning.copy(alpha = 0.15f)
-                                    ConnectionState.DISCONNECTED -> TextMuted.copy(alpha = 0.15f)
-                                }
-                            )
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        when (connectionState) {
-                                            ConnectionState.CONNECTED -> SuccessGreen
-                                            ConnectionState.CONNECTING -> AmberWarning
-                                            ConnectionState.DISCONNECTED -> TextMuted
-                                        }
-                                    )
-                            )
-                            Text(
-                                text = when (connectionState) {
-                                    ConnectionState.DISCONNECTED -> "OFF"
-                                    ConnectionState.CONNECTING -> "..."
-                                    ConnectionState.CONNECTED -> "ON"
-                                },
-                                color = TextSecondary,
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Subscription Info Bar (Happ-style)
-            SubscriptionInfoBar()
-
-            // Large Glow Power Button (like Happ but better)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                GlowPowerButton()
-
+            Text(text = server.flag, fontSize = 42.sp)
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = when (connectionState) {
-                        ConnectionState.DISCONNECTED -> "Disconnected"
-                        ConnectionState.CONNECTING -> "Connecting..."
-                        ConnectionState.CONNECTED -> "Connected"
-                    },
-                    color = when (connectionState) {
-                        ConnectionState.CONNECTED -> SuccessGreen
-                        ConnectionState.CONNECTING -> AmberWarning
-                        ConnectionState.DISCONNECTED -> TextMuted
-                    },
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-            AnimatedVisibility(visible = connectionState == ConnectionState.CONNECTED && selectedServer != null) {
-                Text(
-                    text = "${selectedServer?.flag ?: ""} ${selectedServer?.name ?: ""}",
-                    color = TextSecondary,
-                    fontSize = 12.sp,
+                    text = server.name.split(" • ").lastOrNull() ?: server.name,
+                    color = TextPrimary,
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-            }
-
-            AnimatedVisibility(visible = selectedServer == null && RedShiftState.servers.isNotEmpty()) {
-                Text(
-                    "Tap a server to select",
-                    color = TextMuted,
-                    fontSize = 11.sp
-                )
-            }
-            }
-
-            // Session Info Row
-            if (connectionState == ConnectionState.CONNECTED) {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
-                    exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top)
-                ) {
-                    QuickSessionRow()
-                }
-            }
-
-            // Servers / Recent servers section
-            DashboardServersSection()
-
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-    }
-}
-
-@Composable
-fun SubscriptionInfoBar() {
-    val hasSub = RedShiftState.subscriptionUrl.isNotBlank() || RedShiftState.isLoggedIn
-    if (!hasSub) return
-
-    val planDisplay = RedShiftState.subscriptionPlan.ifBlank { "—" }
-    val expiryRaw = RedShiftState.subscriptionExpiry.take(10)
-    val expiryDisplay = if (expiryRaw.isBlank() || expiryRaw == "N/A") "—" else expiryRaw
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(CyberCard.copy(alpha = 0.7f))
-            .border(0.5.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
-            .padding(14.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+                Spacer(modifier = Modifier.height(3.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(Icons.Default.Subscriptions, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(16.dp))
+                    Icon(
+                        imageVector = Icons.Default.Public,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(13.dp)
+                    )
                     Text(
-                        text = planDisplay,
-                        color = TextPrimary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
+                        text = server.address,
+                        color = TextSecondary,
+                        fontSize = 13.sp
                     )
                 }
-                Text(
-                    text = "Exp: $expiryDisplay",
-                    color = AmberWarning,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
             }
+        }
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            MetricItem(
+                icon = { SignalBarsIconCompact() },
+                label = "Download",
+                value = speedStr(RedShiftState.downloadSpeed)
+            )
+            MetricItem(
+                icon = { PingBars(latency = if (server.latency > 0) server.latency else 999) },
+                label = "Ping",
+                value = if (server.latency > 0) "${server.latency}ms" else "—"
+            )
+            MetricItem(
+                icon = { SignalBarsIconCompact() },
+                label = "Upload",
+                value = speedStr(RedShiftState.uploadSpeed)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(VpnSurfaceTertiary)
+                .border(0.5.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(14.dp))
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val totalUsedMb = RedShiftState.totalDataUsedMb
-                Text(
-                    text = String.format("%.2f MB", totalUsedMb),
-                    color = TextSecondary,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun GlowPowerButton() {
-    val context = LocalContext.current
-    val connectionState = RedShiftState.connectionState
-    val selectedServer = RedShiftState.getSelectedServer()
-
-    val vpnPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            RedShiftState.toggleVpn()
-        }
-    }
-
-    val notifPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        val intent = VpnService.prepare(context)
-        if (intent != null) {
-            vpnPermissionLauncher.launch(intent)
-        } else {
-            RedShiftState.toggleVpn()
-        }
-    }
-
-    val isConnected = connectionState == ConnectionState.CONNECTED
-    val isConnecting = connectionState == ConnectionState.CONNECTING
-
-    val infiniteTransition = rememberInfiniteTransition(label = "glow_power")
-
-    val glowRadius by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowRadius"
-    )
-
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowAlpha"
-    )
-
-    val spinAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "spinAngle"
-    )
-
-    val accentColor = when {
-        isConnected -> SuccessGreen
-        isConnecting -> AmberWarning
-        else -> RedPrimary
-    }
-
-    Box(
-        modifier = Modifier.size(140.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        // Outer glow ring (pulsing)
-        Box(
-            modifier = Modifier
-                .size((120 * glowRadius).dp)
-                .drawBehind {
-                    drawCircle(
-                        color = accentColor.copy(alpha = glowAlpha * 0.15f),
-                        radius = size.minDimension / 2
-                    )
-                }
-        )
-
-        // Rotating arc border (connecting state) or static ring
-        Box(
-            modifier = Modifier
-                .size(120.dp)
-                .drawBehind {
-                    if (isConnecting) {
-                        val arcLen = 240f
-                        drawArc(
-                            color = accentColor,
-                            startAngle = spinAngle,
-                            sweepAngle = arcLen,
-                            useCenter = false,
-                            style = Stroke(
-                                width = 3.dp.toPx(),
-                                cap = androidx.compose.ui.graphics.StrokeCap.Round
-                            )
-                        )
-                        drawArc(
-                            color = accentColor.copy(alpha = 0.3f),
-                            startAngle = spinAngle + arcLen,
-                            sweepAngle = 360f - arcLen,
-                            useCenter = false,
-                            style = Stroke(
-                                width = 1.5.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 8f), 0f)
-                            )
-                        )
-                    } else {
-                        drawCircle(
-                            color = accentColor,
-                            radius = size.minDimension / 2,
-                            style = Stroke(width = 2.5.dp.toPx())
-                        )
-                        drawCircle(
-                            color = accentColor.copy(alpha = if (isConnected) 0.08f else 0.04f),
-                            radius = size.minDimension / 2
-                        )
-                    }
-                }
-        )
-
-        // Inner circle
-        Box(
-            modifier = Modifier
-                .size(90.dp)
-                .clip(CircleShape)
-                .background(CyberElevated)
-                .border(1.5.dp, accentColor.copy(alpha = 0.5f), CircleShape)
-                .clickable {
-                    try {
-                        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
-                                context, Manifest.permission.POST_NOTIFICATIONS
-                            ) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            val intent = VpnService.prepare(context)
-                            if (intent != null) {
-                                vpnPermissionLauncher.launch(intent)
-                            } else {
-                                RedShiftState.toggleVpn()
-                            }
-                        }
-                    } catch (_: Exception) {}
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            if (isConnected && selectedServer != null) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(selectedServer.flag, fontSize = 26.sp)
-                    Text(
-                        selectedServer.name.take(10),
-                        color = Color.White,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                }
-            } else if (isConnecting) {
-                CircularProgressIndicator(
-                    color = AmberWarning,
-                    strokeWidth = 3.dp,
-                    modifier = Modifier.size(32.dp)
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.PowerSettingsNew,
-                    contentDescription = null,
-                    tint = RedPrimary,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun GlassSpeedCard(
-    label: String,
-    speed: Double,
-    unit: String,
-    accentColor: Color,
-    icon: ImageVector,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(CyberCard.copy(alpha = 0.6f))
-            .border(0.5.dp, accentColor.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
-            .padding(16.dp)
-    ) {
-        Column(
-            horizontalAlignment = Alignment.Start,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.12f)),
+                        .background(Brush.horizontalGradient(listOf(PremiumBlue, PremiumViolet))),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = icon,
+                        imageVector = if (active) Icons.Default.Stop else Icons.Default.PlayArrow,
                         contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(11.dp)
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
                 Text(
-                    text = label,
-                    color = TextMuted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = String.format("%.1f", speed),
+                    text = if (active) "Disconnect" else "Connect",
                     color = TextPrimary,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
                 )
                 Text(
-                    text = unit,
-                    color = TextMuted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 3.dp)
+                    text = "❯❯❯",
+                    color = TextMuted.copy(alpha = 0.6f),
+                    fontSize = 13.sp
                 )
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.Bottom,
-                modifier = Modifier.height(16.dp)
-            ) {
-                val targets = listOf(0.3f, 0.5f, 0.8f, 0.4f).map { it * (speed / 50.0).toFloat().coerceIn(0.1f, 1.2f) }
-                targets.forEachIndexed { i, target ->
-                    val h by animateFloatAsState(
-                        targetValue = target,
-                        animationSpec = tween(600 + i * 120, easing = FastOutSlowInEasing),
-                        label = "bar_$i"
-                    )
-                    Box(
-                        modifier = Modifier
-                            .width(3.dp)
-                            .fillMaxHeight(h.coerceIn(0.08f, 1f))
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(accentColor.copy(alpha = 0.5f))
-                    )
-                }
             }
         }
     }
 }
 
 @Composable
-fun QuickSessionRow() {
-    val seconds = RedShiftState.sessionDurationSeconds
-    val hrs = seconds / 3600
-    val mins = (seconds % 3600) / 60
-    val secs = seconds % 60
-    val timeStr = String.format("%02d:%02d:%02d", hrs, mins, secs)
-
-    val selectedServer = RedShiftState.getSelectedServer()
-
+private fun SignalBarsIconCompact() {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        QuickChip(icon = "⏱", label = timeStr)
-        QuickChip(icon = "💾", label = String.format("%.0f MB", RedShiftState.totalDataUsedMb))
-        val expiry = RedShiftState.subscriptionExpiry
-        if (expiry.isNotBlank() && expiry != "N/A") {
-            QuickChip(icon = "📅", label = "Exp: ${expiry.take(10)}")
-        }
-        if (selectedServer != null) {
-            QuickChip(
-                icon = selectedServer.flag,
-                label = selectedServer.protocol
+        listOf(4.dp, 7.dp, 10.dp).forEach { h ->
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(h)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(SuccessGreen.copy(alpha = 0.9f))
             )
         }
     }
 }
 
 @Composable
-fun QuickChip(icon: String, label: String) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(CyberElevated)
-            .border(0.5.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+private fun MetricItem(
+    icon: @Composable () -> Unit,
+    label: String,
+    value: String
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            Text(text = icon, fontSize = 11.sp)
+            icon()
             Text(
                 text = label,
-                color = TextPrimary.copy(alpha = 0.85f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-    }
-}
-
-@Composable
-fun DashboardServersSection() {
-    val context = LocalContext.current
-    val loggedIn = RedShiftState.isLoggedIn || RedShiftState.subscriptionUrl.isNotBlank()
-    val hasServers = RedShiftState.servers.isNotEmpty()
-
-    if (!loggedIn && !hasServers) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(CyberCard.copy(alpha = 0.5f))
-                .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
-                .padding(20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Link, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
-                Text("Import subscription to get started", color = TextSecondary, fontSize = 13.sp)
-                Text("Tap + button or go to Settings", color = TextMuted, fontSize = 11.sp)
-                CyberButton(
-                    text = "Paste from Clipboard",
-                    onClick = {
-                        try {
-                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            val clip = clipboard.primaryClip
-                            if (clip != null && clip.itemCount > 0) {
-                                val text = clip.getItemAt(0).text.toString().trim()
-                                if (text.isNotEmpty()) {
-                                    RedShiftState.importSubscription(text)
-                                }
-                            }
-                        } catch (_: Exception) {}
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-        return
-    }
-
-    if (!hasServers) return
-
-    var expanded by remember { mutableStateOf(false) }
-    var pinging by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = if (RedShiftState.recentServers.isNotEmpty() && !expanded) "Recent" else "All Servers",
                 color = TextMuted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(RedPrimary.copy(alpha = 0.12f))
-                        .clickable(enabled = !pinging) {
-                            pinging = true
-                            scope.launch {
-                                try {
-                                    RedShiftState.servers.forEachIndexed { index, server ->
-                                        val start = System.currentTimeMillis()
-                                        try {
-                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                                val socket = java.net.Socket()
-                                                socket.connect(java.net.InetSocketAddress(server.address, server.port), 3000)
-                                                socket.close()
-                                            }
-                                            val elapsed = (System.currentTimeMillis() - start).toInt()
-                                            RedShiftState.servers[index] = server.copy(latency = elapsed)
-                                        } catch (_: Exception) {
-                                            RedShiftState.servers[index] = server.copy(latency = -1)
-                                        }
-                                    }
-                                } catch (_: Exception) {}
-                                pinging = false
-                            }
-                        }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = if (pinging) "•••" else "PING",
-                        color = RedPrimary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { expanded = !expanded }
-                        .padding(horizontal = 4.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = if (expanded) "▲" else "▼",
-                        color = RedPrimary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        val displayServers = if (!expanded && RedShiftState.recentServers.isNotEmpty()) {
-            RedShiftState.recentServers.take(6)
-        } else {
-            RedShiftState.servers
-        }
-
-        if (displayServers.isNotEmpty()) {
-            val columns = Arrangement.spacedBy(8.dp)
-            val rows = Arrangement.spacedBy(8.dp)
-            Column(verticalArrangement = rows) {
-                displayServers.chunked(2).forEach { rowServers ->
-                    Row(horizontalArrangement = columns, modifier = Modifier.fillMaxWidth()) {
-                        rowServers.forEach { server ->
-                            DashboardServerMiniCard(server = server, modifier = Modifier.weight(1f))
-                        }
-                        if (rowServers.size == 1) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DashboardServerMiniCard(server: Server, modifier: Modifier = Modifier) {
-    val isSelected = RedShiftState.selectedServerId == server.id
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (isSelected) RedPrimary.copy(alpha = 0.1f) else CyberCard)
-            .border(
-                1.dp,
-                if (isSelected) RedPrimary.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.05f),
-                RoundedCornerShape(14.dp)
-            )
-            .clickable { RedShiftState.selectedServerId = server.id }
-            .padding(12.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = server.flag, fontSize = 22.sp)
-                val latColor = when {
-                    server.latency <= 0 -> TextMuted
-                    server.latency < 50 -> SuccessGreen
-                    server.latency < 150 -> AmberWarning
-                    else -> ErrorRed
-                }
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(latColor)
-                )
-            }
-            Text(
-                text = server.name.split(" • ").lastOrNull() ?: server.name,
-                color = TextPrimary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = if (server.latency > 0) "${server.latency}ms" else "—",
-                color = TextMuted,
-                fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                fontSize = 12.sp
             )
         }
-    }
-}
-
-@Composable
-fun DashboardServerRow(server: Server) {
-    val isSelected = RedShiftState.selectedServerId == server.id
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isSelected) RedPrimary.copy(alpha = 0.08f) else CyberCard.copy(alpha = 0.5f))
-            .border(
-                0.5.dp,
-                if (isSelected) RedPrimary.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.04f),
-                RoundedCornerShape(12.dp)
-            )
-            .clickable { RedShiftState.selectedServerId = server.id }
-            .padding(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = server.flag, fontSize = 20.sp)
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = server.name.split(" • ").lastOrNull() ?: server.name,
-                        color = if (isSelected) RedPrimary else TextPrimary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = server.protocol,
-                        color = TextMuted,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                val latColor = when {
-                    server.latency <= 0 -> TextMuted
-                    server.latency < 50 -> SuccessGreen
-                    server.latency < 150 -> AmberWarning
-                    else -> ErrorRed
-                }
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .clip(CircleShape)
-                        .background(latColor)
-                )
-                if (server.latency > 0) {
-                    Text(
-                        text = "${server.latency}ms",
-                        color = latColor,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-        }
+        Text(
+            text = value,
+            color = TextPrimary,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
     }
 }
 
@@ -1309,10 +709,14 @@ fun ServersScreen(onAddServerClick: () -> Unit) {
         ) {
             Text(
                 text = Trans.get("tab_servers"),
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = TextPrimary
             )
+
+            if (RedShiftState.getSelectedServer() != null) {
+                ActiveServerCard(onToggle = onConnect)
+            }
 
             OutlinedTextField(
                 value = searchQuery,
@@ -1633,27 +1037,40 @@ fun ServerItemCard(server: Server, onConnect: (() -> Unit)? = null) {
                     }
 
                     if (onConnect != null) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(if (isThisServerConnected) ErrorRed else RedPrimary.copy(alpha = 0.15f))
-                                .clickable {
-                                    RedShiftState.selectedServerId = server.id
-                                    onConnect()
-                                },
-                            contentAlignment = Alignment.Center
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(
-                                imageVector = if (isThisServerConnected) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                contentDescription = if (isThisServerConnected) "Disconnect" else "Connect",
-                                tint = if (isThisServerConnected) Color.White else RedPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            LatencyBadge(ping = server.latency)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(
+                                        if (isThisServerConnected) VpnSurfaceTertiary
+                                        else RedPrimary.copy(alpha = 0.22f)
+                                    )
+                                    .border(
+                                        0.5.dp,
+                                        if (isThisServerConnected) Color.White.copy(alpha = 0.1f) else Color.Transparent,
+                                        RoundedCornerShape(999.dp)
+                                    )
+                                    .clickable {
+                                        RedShiftState.selectedServerId = server.id
+                                        onConnect()
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = if (isThisServerConnected) "DISCONNECT" else "CONNECT",
+                                    color = if (isThisServerConnected) TextSecondary else PremiumBlue,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
+                    } else {
+                        LatencyBadge(ping = server.latency)
                     }
-
-                    LatencyBadge(ping = server.latency)
                 }
             }
         }
@@ -2552,9 +1969,9 @@ fun SettingsScreen() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text(text = "User ID: ${RedShiftState.telegramToken}", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(text = "User ID: ${if (RedShiftState.telegramToken.toIntOrNull() != null) RedShiftState.telegramToken else "—"}", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             Text(text = "Plan: ${RedShiftState.subscriptionPlan}", color = TextPrimary, fontSize = 13.sp)
-                            Text(text = "Expires: ${RedShiftState.subscriptionExpiry.take(10)}", color = SuccessGreen, fontSize = 12.sp)
+                            Text(text = "Expires: ${expiryDisplay(RedShiftState.subscriptionExpiry)}", color = SuccessGreen, fontSize = 12.sp)
                             if (user != null) {
                                 Text(text = "Devices: ${user.deviceCount}", color = TextSecondary, fontSize = 11.sp)
                             }
