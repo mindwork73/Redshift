@@ -308,9 +308,9 @@ private fun ActiveServerHeroCard(
                 .fillMaxWidth()
                 .height(56.dp)
                 .clip(RoundedCornerShape(100.dp))
-                .background(
-                    if (isConnected) AccentNeonGreen.copy(alpha = 0.12f)
-                    else Brush.horizontalGradient(VpnColors.premiumGradient)
+                .then(
+                    if (isConnected) Modifier.background(AccentNeonGreen.copy(alpha = 0.12f))
+                    else Modifier.background(Brush.horizontalGradient(VpnColors.premiumGradient))
                 )
                 .border(
                     1.dp,
@@ -326,9 +326,9 @@ private fun ActiveServerHeroCard(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (isConnected) AccentNeonGreen
-                        else Brush.horizontalGradient(VpnColors.premiumGradient)
+                    .then(
+                        if (isConnected) Modifier.background(AccentNeonGreen)
+                        else Modifier.background(Brush.horizontalGradient(VpnColors.premiumGradient))
                     ),
                 contentAlignment = Alignment.Center
             ) {
