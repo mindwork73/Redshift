@@ -12,9 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Icon
@@ -193,19 +190,16 @@ fun HomeScreen(onOpenServers: () -> Unit) {
                 StatCell(
                     label = t("download"),
                     value = formatSpeedLabel(RedShiftState.downloadSpeed),
-                    icon = Icons.Filled.ArrowDownward,
                     modifier = Modifier.weight(1f)
                 )
                 StatCell(
                     label = t("upload"),
                     value = formatSpeedLabel(RedShiftState.uploadSpeed),
-                    icon = Icons.Filled.ArrowUpward,
                     modifier = Modifier.weight(1f)
                 )
                 StatCell(
                     label = t("ping"),
                     value = formatPing(server?.latency ?: 0),
-                    icon = Icons.Filled.DataUsage,
                     valueColor = pingColor(server?.latency ?: 0),
                     modifier = Modifier.weight(1f)
                 )

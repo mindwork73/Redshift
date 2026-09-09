@@ -10,12 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Globe
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -214,7 +212,7 @@ fun SettingsScreen() {
                 title = t("block_ads"),
                 checked = RedShiftState.blockAds,
                 onCheckedChange = { RedShiftState.blockAds = it },
-                leadingIcon = Icons.Filled.Block
+                leadingIcon = Icons.Filled.Shield
             )
         }
 
@@ -230,7 +228,7 @@ fun SettingsScreen() {
             ListItem(
                 title = t("language"),
                 subtitle = LocalizationState.currentLanguage.nativeName,
-                leadingIcon = Icons.Filled.Language,
+                leadingIcon = Icons.Filled.Public,
                 showChevron = true,
                 onClick = { showLanguageSheet = true }
             )
@@ -326,7 +324,7 @@ fun SettingsScreen() {
             ListItem(
                 title = t("support"),
                 subtitle = SupportBot,
-                leadingIcon = Icons.Filled.Shield
+                leadingIcon = Icons.Filled.VerifiedUser
             )
         }
 

@@ -71,11 +71,10 @@ fun ServersScreen() {
     val selectedId = RedShiftState.selectedServerId
     val sortByPing = RedShiftState.sortByPing
 
-    // Active server first, the rest optionally by measured latency (§8.2).
+    // Active server first; latency ordering only when the user opted into sortByPing (§8.2).
     val ordered = servers.sortedWith(
         compareByDescending<Server> { it.id == selectedId }
-            .thenByDescending { if (sortByPing && it.latency > 0) 1 else 0 }
-            .thenBy { if (it.latency > 0) it.latency else Int.MAX_VALUE }
+            .thenBy { if (sortByPing && it.latency > 0) it.latency else Int.MAX_VALUE }
             .thenBy { it.name }
     )
 
