@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -30,26 +31,32 @@ import com.example.ui.theme.*
 @Composable
 fun CyberCard(
     modifier: Modifier = Modifier,
-    glowColor: Color = RedPrimary,
+    glowColor: Color = AccentNeonGreen,
     glowWidth: Dp = 1.dp,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
         modifier = modifier
+            .shadow(
+                elevation = 8.dp,
+                shape = RoundedCornerShape(20.dp),
+                ambientColor = Color.Black.copy(alpha = 0.4f),
+                spotColor = glowColor.copy(alpha = 0.1f)
+            )
             .border(
                 BorderStroke(
-                    glowWidth, 
+                    glowWidth,
                     Brush.verticalGradient(
                         colors = listOf(
-                            glowColor.copy(alpha = 0.6f),
-                            glowColor.copy(alpha = 0.08f)
+                            glowColor.copy(alpha = 0.4f),
+                            BorderGraphite.copy(alpha = 0.6f)
                         )
                     )
                 ),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(20.dp)
             ),
-        color = CyberCard.copy(alpha = 0.82f),
-        shape = RoundedCornerShape(16.dp),
+        color = SurfaceGlass.copy(alpha = 0.85f),
+        shape = RoundedCornerShape(20.dp),
         shadowElevation = 4.dp
     ) {
         Column(
@@ -64,25 +71,33 @@ fun CyberButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    glowColor: Color = RedPrimary,
+    glowColor: Color = AccentNeonGreen,
     enabled: Boolean = true
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(100.dp))
             .background(
                 if (enabled) {
                     Brush.horizontalGradient(
-                        colors = listOf(RedPrimary, RedGradientEnd)
+                        colors = listOf(PremiumStart, PremiumEnd)
                     )
                 } else {
                     Brush.horizontalGradient(
-                        colors = listOf(TextMuted, TextMuted)
+                        colors = listOf(TextMuted.copy(alpha = 0.5f), TextMuted.copy(alpha = 0.5f))
                     )
                 }
             )
+            .then(
+                if (enabled) Modifier.drawBehind {
+                    drawRoundRect(
+                        color = glowColor.copy(alpha = 0.2f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2),
+                        style = Stroke(width = 2.dp.toPx())
+                    )
+                } else Modifier
+            )
             .clickable(enabled = enabled, onClick = onClick)
-            .border(1.dp, glowColor.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
             .padding(vertical = 14.dp, horizontal = 24.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -97,30 +112,42 @@ fun CyberButton(
 }
 
 @Composable
-fun MiniStatPill(
-    icon: String,
-    label: String,
-    value: String,
+fun GlassCard(
     modifier: Modifier = Modifier,
-    glowColor: Color = PurpleSecondary
+    borderColor: Color = BorderGraphite,
+    content: @Composable ColumnScope.() -> Unit
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(CyberElevated)
-            .border(0.5.dp, glowColor.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(SurfaceGlass.copy(alpha = 0.85f))
+            .border(1.dp, borderColor, RoundedCornerShape(20.dp))
+            .padding(16.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(text = icon, fontSize = 14.sp)
-            Column {
-                Text(text = label, color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Normal)
-                Text(text = value, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
+        Column(content = content)
+    }
+}
+
+@Composable
+fun NeonPill(
+    text: String,
+    color: Color = AccentNeonGreen,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(100.dp))
+            .background(color.copy(alpha = 0.12f))
+            .border(0.5.dp, color.copy(alpha = 0.4f), RoundedCornerShape(100.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    ) {
+        Text(
+            text = text,
+            color = color,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -130,30 +157,16 @@ fun ProtocolBadge(
     modifier: Modifier = Modifier
 ) {
     val color = when {
-        protocol.contains("VLESS") -> RedPrimary
-        protocol.contains("VMess") -> Color(0xFFFF9100)
-        protocol.contains("Trojan") -> PurpleSecondary
-        protocol.contains("Shadowsocks") -> Color(0xFF2979FF)
-        protocol.contains("Socks") -> Color(0xFF00B0FF)
-        protocol.contains("Hysteria") -> Color(0xFFFF4081)
-        protocol.contains("Amnezia") -> Color(0xFF00E676)
+        protocol.contains("VLESS") -> AccentNeonGreen
+        protocol.contains("VMess") -> AccentWarning
+        protocol.contains("Trojan") -> PremiumStart
+        protocol.contains("Shadowsocks") -> AccentBlue
+        protocol.contains("Socks") -> PremiumCyan
+        protocol.contains("Hysteria") -> AccentError
+        protocol.contains("Amnezia") -> AccentNeonGreen
         else -> TextSecondary
     }
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(color.copy(alpha = 0.15f))
-            .border(0.5.dp, color.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-    ) {
-        Text(
-            text = protocol,
-            color = color,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
+    NeonPill(text = protocol, color = color, modifier = modifier)
 }
 
 @Composable
@@ -162,52 +175,42 @@ fun LatencyBadge(
     modifier: Modifier = Modifier
 ) {
     if (ping <= 0) {
-        Box(
-            modifier = modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(TextMuted.copy(alpha = 0.15f))
-                .border(0.5.dp, TextMuted.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-        ) {
-            Text(
-                text = "—",
-                color = TextSecondary,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        NeonPill(text = "—", color = TextMuted, modifier = modifier)
         return
     }
 
     val color = when {
-        ping <= 50 -> SuccessGreen
-        ping <= 150 -> WarningAmber
-        else -> ErrorRed
+        ping <= 50 -> AccentNeonGreen
+        ping <= 150 -> AccentWarning
+        else -> AccentError
     }
+    NeonPill(text = "${ping}ms", color = color, modifier = modifier)
+}
 
+@Composable
+fun MiniStatPill(
+    icon: String,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    glowColor: Color = AccentNeonGreen
+) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(color.copy(alpha = 0.15f))
-            .border(0.5.dp, color.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(SurfaceGlass.copy(alpha = 0.7f))
+            .border(0.5.dp, glowColor.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(5.dp)
-                    .clip(CircleShape)
-                    .background(color)
-            )
-            Text(
-                text = "${ping}ms",
-                color = color,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Text(text = icon, fontSize = 14.sp)
+            Column {
+                Text(text = label, color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Normal)
+                Text(text = value, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -219,14 +222,14 @@ fun PulsingConnectionRing(
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "ring_transition")
-    
+
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1.0f,
-        targetValue = 1.25f,
+        targetValue = 1.3f,
         animationSpec = infiniteSpec(1500),
         label = "scale"
     )
-    
+
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.5f,
         targetValue = 0.0f,
@@ -245,26 +248,19 @@ fun PulsingConnectionRing(
     )
 
     val color = when (connectionState) {
-        ConnectionState.DISCONNECTED -> RedPrimary
-        ConnectionState.CONNECTING -> AmberWarning
-        ConnectionState.CONNECTED -> SuccessGreen
-    }
-
-    val glowColor = when (connectionState) {
-        ConnectionState.DISCONNECTED -> GlowRed
-        ConnectionState.CONNECTING -> Color(0x22FFD740)
-        ConnectionState.CONNECTED -> GlowGreen
+        ConnectionState.DISCONNECTED -> TextPrimary
+        ConnectionState.CONNECTING -> AccentWarning
+        ConnectionState.CONNECTED -> AccentNeonGreen
     }
 
     Box(
         modifier = modifier.size(160.dp).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        // Outer pulsing ring (only when connected or disconnected)
         if (connectionState != ConnectionState.CONNECTING) {
             Box(
                 modifier = Modifier
-                    .size(120.dp * pulseScale)
+                    .size(130.dp * pulseScale)
                     .border(
                         BorderStroke(1.5.dp, color.copy(alpha = pulseAlpha)),
                         shape = CircleShape
@@ -272,10 +268,9 @@ fun PulsingConnectionRing(
             )
         }
 
-        // Inner glowing and spinning dash border when connecting
         Box(
             modifier = Modifier
-                .size(116.dp)
+                .size(120.dp)
                 .drawBehind {
                     if (connectionState == ConnectionState.CONNECTING) {
                         drawArc(
@@ -297,27 +292,25 @@ fun PulsingConnectionRing(
                 }
         )
 
-        // Core central button
         Box(
             modifier = Modifier
                 .size(100.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(CyberElevated, CyberBackground)
+                        colors = listOf(SurfaceInner, BackgroundGraphite)
                     )
                 )
                 .border(2.dp, color, CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            // Internal neon visual effect
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .drawBehind {
                         drawCircle(
                             brush = Brush.radialGradient(
-                                colors = listOf(color.copy(alpha = 0.25f), Color.Transparent),
+                                colors = listOf(color.copy(alpha = 0.2f), Color.Transparent),
                                 radius = size.minDimension / 2
                             )
                         )
@@ -325,22 +318,13 @@ fun PulsingConnectionRing(
                 contentAlignment = Alignment.Center
             ) {
                 when (connectionState) {
-                    ConnectionState.DISCONNECTED -> {
-                        // Power icon
-                        PowerIcon(color = color)
-                    }
-                    ConnectionState.CONNECTING -> {
-                        // Tiny spin loader
-                        CircularProgressIndicator(
-                            color = color,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-                    ConnectionState.CONNECTED -> {
-                        // Shield checkmark
-                        ShieldCheckIcon(color = color)
-                    }
+                    ConnectionState.DISCONNECTED -> PowerIcon(color = color)
+                    ConnectionState.CONNECTING -> CircularProgressIndicator(
+                        color = color,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    ConnectionState.CONNECTED -> ShieldCheckIcon(color = color)
                 }
             }
         }
@@ -359,8 +343,6 @@ fun PowerIcon(color: Color, modifier: Modifier = Modifier) {
     androidx.compose.foundation.Canvas(modifier = modifier.size(32.dp)) {
         val w = size.width
         val h = size.height
-        val center = Offset(w / 2, h / 2)
-        
         drawArc(
             color = color,
             startAngle = -220f,
@@ -383,7 +365,7 @@ fun ShieldCheckIcon(color: Color, modifier: Modifier = Modifier) {
     androidx.compose.foundation.Canvas(modifier = modifier.size(32.dp)) {
         val w = size.width
         val h = size.height
-        
+
         val shieldPath = Path().apply {
             moveTo(w * 0.15f, h * 0.25f)
             lineTo(w * 0.5f, h * 0.12f)
@@ -392,14 +374,13 @@ fun ShieldCheckIcon(color: Color, modifier: Modifier = Modifier) {
             cubicTo(w * 0.5f, h * 0.88f, w * 0.15f, h * 0.55f, w * 0.15f, h * 0.25f)
             close()
         }
-        
+
         drawPath(
             path = shieldPath,
             color = color,
             style = Stroke(width = 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
         )
-        
-        // Checkmark
+
         drawLine(
             color = color,
             start = Offset(w * 0.35f, h * 0.48f),
@@ -423,7 +404,7 @@ fun TrafficActivityBars(
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "activity_bars")
-    
+
     val height1 by infiniteTransition.animateFloat(
         initialValue = 0.2f,
         targetValue = 1f,

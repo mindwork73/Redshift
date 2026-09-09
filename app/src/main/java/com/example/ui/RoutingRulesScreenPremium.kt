@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -34,7 +33,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
@@ -56,8 +54,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.VpnColors
-import com.example.ui.theme.VpnTypography
+import com.example.ui.theme.*
 
 @Composable
 fun RoutingRulesScreenPremium() {
@@ -67,19 +64,17 @@ fun RoutingRulesScreenPremium() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(VpnColors.Background)
+            .background(BackgroundGraphite)
             .padding(horizontal = 24.dp)
     ) {
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ─── Header ───
         Text(
             text = Trans.get("tab_rules"),
             style = VpnTypography.statusMain.copy(fontSize = 24.sp, color = VpnColors.TextPrimary),
             modifier = Modifier.padding(bottom = 24.dp)
         )
 
-        // ─── Mode Selectors ───
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -106,7 +101,6 @@ fun RoutingRulesScreenPremium() {
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // ─── Custom Rules Header ───
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -130,19 +124,17 @@ fun RoutingRulesScreenPremium() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ─── Rules List ───
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Predefined Rule Sets
             item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
-                        .background(VpnColors.surfaceGlass)
-                        .border(1.dp, VpnColors.borderLight, RoundedCornerShape(20.dp))
+                        .background(SurfaceGlass.copy(alpha = 0.85f))
+                        .border(1.dp, BorderGraphite, RoundedCornerShape(20.dp))
                         .padding(16.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -153,10 +145,7 @@ fun RoutingRulesScreenPremium() {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Predefined Rule Sets",
-                                style = VpnTypography.cardTitle
-                            )
+                            Text(text = "Predefined Rule Sets", style = VpnTypography.cardTitle)
                             Icon(
                                 imageVector = if (rulesCollapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
                                 contentDescription = null,
@@ -166,20 +155,19 @@ fun RoutingRulesScreenPremium() {
 
                         AnimatedVisibility(visible = !rulesCollapsed) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                RuleSwitchRowPremium(label = "Bypass Local Network Address", checked = RedShiftState.bypassLocal, onCheckedChange = { RedShiftState.bypassLocal = it })
-                                RuleSwitchRowPremium(label = "Bypass LAN IPs (192.168.x.x)", checked = RedShiftState.bypassLan, onCheckedChange = { RedShiftState.bypassLan = it })
-                                RuleSwitchRowPremium(label = "Bypass Russian Sites", checked = RedShiftState.bypassRussia, onCheckedChange = { RedShiftState.bypassRussia = it })
-                                RuleSwitchRowPremium(label = "Bypass China Sites", checked = RedShiftState.bypassChina, onCheckedChange = { RedShiftState.bypassChina = it })
-                                RuleSwitchRowPremium(label = "Block Ads & Trackers", checked = RedShiftState.blockAds, onCheckedChange = { RedShiftState.blockAds = it })
+                                RuleSwitchRow(label = "Bypass Local Network Address", checked = RedShiftState.bypassLocal, onCheckedChange = { RedShiftState.bypassLocal = it })
+                                RuleSwitchRow(label = "Bypass LAN IPs (192.168.x.x)", checked = RedShiftState.bypassLan, onCheckedChange = { RedShiftState.bypassLan = it })
+                                RuleSwitchRow(label = "Bypass Russian Sites", checked = RedShiftState.bypassRussia, onCheckedChange = { RedShiftState.bypassRussia = it })
+                                RuleSwitchRow(label = "Bypass China Sites", checked = RedShiftState.bypassChina, onCheckedChange = { RedShiftState.bypassChina = it })
+                                RuleSwitchRow(label = "Block Ads & Trackers", checked = RedShiftState.blockAds, onCheckedChange = { RedShiftState.blockAds = it })
                             }
                         }
                     }
                 }
             }
 
-            // Custom Rules
             items(RedShiftState.routingRules) { rule ->
-                CustomRuleCardPremium(rule = rule)
+                CustomRuleCard(rule = rule)
             }
 
             item { Spacer(modifier = Modifier.height(24.dp)) }
@@ -187,7 +175,7 @@ fun RoutingRulesScreenPremium() {
     }
 
     if (showAddRuleDialog) {
-        AddRuleDialogPremium(
+        AddRuleDialog(
             onDismiss = { showAddRuleDialog = false },
             onRuleAdded = { newRule ->
                 RedShiftState.routingRules.add(newRule)
@@ -196,8 +184,6 @@ fun RoutingRulesScreenPremium() {
         )
     }
 }
-
-// ─── Component Helpers ───
 
 @Composable
 private fun ModeSelectorCard(
@@ -208,7 +194,7 @@ private fun ModeSelectorCard(
 ) {
     val isActive = RedShiftState.routingMode == mode
     val activeBrush = Brush.horizontalGradient(VpnColors.premiumGradient)
-    val inactiveBrush = Brush.horizontalGradient(listOf(VpnColors.surfaceInner, VpnColors.surfaceInner))
+    val inactiveBrush = Brush.horizontalGradient(listOf(SurfaceInner, SurfaceInner))
 
     Box(
         modifier = modifier
@@ -217,7 +203,7 @@ private fun ModeSelectorCard(
             .background(if (isActive) activeBrush else inactiveBrush)
             .border(
                 width = 1.dp,
-                color = if (isActive) Color.Transparent else VpnColors.borderLight,
+                color = if (isActive) Color.Transparent else BorderGraphite,
                 shape = RoundedCornerShape(16.dp)
             )
             .clickable { RedShiftState.routingMode = mode },
@@ -246,7 +232,7 @@ private fun ModeSelectorCard(
 }
 
 @Composable
-private fun RuleSwitchRowPremium(
+private fun RuleSwitchRow(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
@@ -265,32 +251,32 @@ private fun RuleSwitchRowPremium(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = VpnColors.Background,
-                checkedTrackColor = VpnColors.accentGreen,
-                uncheckedThumbColor = VpnColors.TextSecondary,
-                uncheckedTrackColor = VpnColors.surfaceInner,
-                uncheckedBorderColor = VpnColors.borderLight
+                checkedThumbColor = BackgroundGraphite,
+                checkedTrackColor = AccentNeonGreen,
+                uncheckedThumbColor = TextSecondary,
+                uncheckedTrackColor = SurfaceInner,
+                uncheckedBorderColor = BorderGraphite
             )
         )
     }
 }
 
 @Composable
-private fun CustomRuleCardPremium(rule: RoutingRule) {
+private fun CustomRuleCard(rule: RoutingRule) {
     var isEnabled by remember { mutableStateOf(rule.isEnabled) }
 
     val actionColor = when (rule.action) {
-        "Proxy" -> VpnColors.accentWarning
-        "Direct" -> VpnColors.accentGreen
-        else -> VpnColors.accentError
+        "Proxy" -> AccentWarning
+        "Direct" -> AccentNeonGreen
+        else -> AccentError
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(VpnColors.surfaceInner)
-            .border(1.dp, VpnColors.borderLight, RoundedCornerShape(16.dp))
+            .background(SurfaceInner)
+            .border(1.dp, BorderGraphite, RoundedCornerShape(16.dp))
             .padding(16.dp)
     ) {
         Row(
@@ -300,7 +286,7 @@ private fun CustomRuleCardPremium(rule: RoutingRule) {
             Icon(
                 imageVector = Icons.Default.DragHandle,
                 contentDescription = "Reorder",
-                tint = VpnColors.borderLight,
+                tint = BorderGraphite,
                 modifier = Modifier.size(24.dp)
             )
 
@@ -316,17 +302,7 @@ private fun CustomRuleCardPremium(rule: RoutingRule) {
                             fontWeight = FontWeight.Bold
                         )
                     )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(actionColor.copy(alpha = 0.15f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = rule.action,
-                            style = VpnTypography.buttonText.copy(fontSize = 10.sp, color = actionColor)
-                        )
-                    }
+                    NeonPill(text = rule.action, color = actionColor)
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
@@ -337,15 +313,13 @@ private fun CustomRuleCardPremium(rule: RoutingRule) {
 
             Switch(
                 checked = isEnabled,
-                onCheckedChange = {
-                    isEnabled = it
-                },
+                onCheckedChange = { isEnabled = it },
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = VpnColors.Background,
-                    checkedTrackColor = VpnColors.accentGreen,
-                    uncheckedThumbColor = VpnColors.TextSecondary,
-                    uncheckedTrackColor = VpnColors.Background,
-                    uncheckedBorderColor = VpnColors.borderLight
+                    checkedThumbColor = BackgroundGraphite,
+                    checkedTrackColor = AccentNeonGreen,
+                    uncheckedThumbColor = TextSecondary,
+                    uncheckedTrackColor = BackgroundGraphite,
+                    uncheckedBorderColor = BorderGraphite
                 )
             )
         }
@@ -354,7 +328,7 @@ private fun CustomRuleCardPremium(rule: RoutingRule) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddRuleDialogPremium(
+private fun AddRuleDialog(
     onDismiss: () -> Unit,
     onRuleAdded: (RoutingRule) -> Unit
 ) {
@@ -364,7 +338,7 @@ private fun AddRuleDialogPremium(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = VpnColors.surfaceGlass,
+        containerColor = BackgroundGraphiteMid,
         titleContentColor = VpnColors.TextPrimary,
         textContentColor = VpnColors.TextSecondary,
         shape = RoundedCornerShape(24.dp),
@@ -373,7 +347,6 @@ private fun AddRuleDialogPremium(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                // Type Selector
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("Domain", "IP CIDR", "GeoIP").forEach { t ->
                         val isSel = type == t
@@ -381,8 +354,8 @@ private fun AddRuleDialogPremium(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSel) VpnColors.surfaceCardSolid else VpnColors.surfaceInner)
-                                .border(1.dp, if (isSel) VpnColors.TextPrimary else Color.Transparent, RoundedCornerShape(8.dp))
+                                .background(if (isSel) AccentNeonGreen.copy(alpha = 0.12f) else SurfaceInner)
+                                .border(1.dp, if (isSel) AccentNeonGreen.copy(alpha = 0.4f) else Color.Transparent, RoundedCornerShape(8.dp))
                                 .clickable { type = t }
                                 .padding(vertical = 10.dp),
                             contentAlignment = Alignment.Center
@@ -391,47 +364,45 @@ private fun AddRuleDialogPremium(
                                 text = t,
                                 style = VpnTypography.buttonText.copy(
                                     fontSize = 11.sp,
-                                    color = if (isSel) VpnColors.TextPrimary else VpnColors.TextSecondary
+                                    color = if (isSel) AccentNeonGreen else VpnColors.TextSecondary
                                 )
                             )
                         }
                     }
                 }
 
-                // Value Input
                 OutlinedTextField(
                     value = value,
                     onValueChange = { value = it },
                     label = { Text("Value", color = VpnColors.TextSecondary) },
-                    placeholder = { Text(if (type == "Domain") "google.com" else if (type == "GeoIP") "RU" else "10.0.0.0/8", color = VpnColors.borderLight) },
+                    placeholder = { Text(if (type == "Domain") "google.com" else if (type == "GeoIP") "RU" else "10.0.0.0/8", color = BorderGraphite) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = VpnColors.TextPrimary,
-                        unfocusedBorderColor = VpnColors.borderLight,
+                        focusedBorderColor = AccentNeonGreen,
+                        unfocusedBorderColor = BorderGraphite,
                         focusedTextColor = VpnColors.TextPrimary,
                         unfocusedTextColor = VpnColors.TextPrimary,
-                        cursorColor = VpnColors.accentGreen,
-                        focusedContainerColor = VpnColors.surfaceInner,
-                        unfocusedContainerColor = VpnColors.surfaceInner
+                        cursorColor = AccentNeonGreen,
+                        focusedContainerColor = SurfaceInner,
+                        unfocusedContainerColor = SurfaceInner
                     ),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     singleLine = true
                 )
 
-                // Action Selector
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("Proxy", "Direct", "Block").forEach { act ->
                         val isSel = action == act
                         val btnColor = when (act) {
-                            "Proxy" -> VpnColors.accentWarning
-                            "Direct" -> VpnColors.accentGreen
-                            else -> VpnColors.accentError
+                            "Proxy" -> AccentWarning
+                            "Direct" -> AccentNeonGreen
+                            else -> AccentError
                         }
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSel) btnColor.copy(alpha = 0.15f) else VpnColors.surfaceInner)
+                                .background(if (isSel) btnColor.copy(alpha = 0.12f) else SurfaceInner)
                                 .border(1.dp, if (isSel) btnColor else Color.Transparent, RoundedCornerShape(8.dp))
                                 .clickable { action = act }
                                 .padding(vertical = 10.dp),
@@ -456,7 +427,7 @@ private fun AddRuleDialogPremium(
                         onRuleAdded(RoutingRule("custom_" + System.currentTimeMillis(), type, value, action))
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = VpnColors.surfaceInner, contentColor = VpnColors.TextPrimary)
+                colors = ButtonDefaults.buttonColors(containerColor = SurfaceInner, contentColor = VpnColors.TextPrimary)
             ) {
                 Text("Add", style = VpnTypography.buttonText)
             }

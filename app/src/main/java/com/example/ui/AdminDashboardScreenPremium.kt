@@ -48,8 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.service.AdminStats
 import com.example.service.RedPillApiClient
-import com.example.ui.theme.VpnColors
-import com.example.ui.theme.VpnTypography
+import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable
@@ -78,19 +77,18 @@ fun AdminDashboardScreenPremium() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(VpnColors.Background)
+            .background(BackgroundGraphite)
             .padding(horizontal = 24.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ─── Header ───
         Text(
             text = Trans.get("admin_panel"),
             style = VpnTypography.statusMain.copy(
                 fontSize = 24.sp,
-                color = VpnColors.accentWarning,
+                color = AccentWarning,
                 fontFamily = FontFamily.Monospace
             )
         )
@@ -100,10 +98,9 @@ fun AdminDashboardScreenPremium() {
                 modifier = Modifier.fillMaxWidth().padding(32.dp),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = VpnColors.accentWarning)
+                CircularProgressIndicator(color = AccentWarning)
             }
         } else {
-            // ─── Stats Row ───
             stats?.let { s ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -120,26 +117,25 @@ fun AdminDashboardScreenPremium() {
                         label = Trans.get("active"),
                         value = s.activeSubscriptions.toString(),
                         icon = Icons.Default.Security,
-                        accentColor = VpnColors.accentGreen,
+                        accentColor = AccentNeonGreen,
                         modifier = Modifier.weight(1f)
                     )
                     PremiumStatCard(
                         label = Trans.get("devices"),
                         value = s.totalDevices.toString(),
                         icon = Icons.Default.Devices,
-                        accentColor = VpnColors.accentWarning,
+                        accentColor = AccentWarning,
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
 
-            // ─── Grant Access Card ───
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(20.dp))
-                    .background(VpnColors.surfaceGlass)
-                    .border(1.dp, VpnColors.borderLight, RoundedCornerShape(20.dp))
+                    .background(SurfaceGlass.copy(alpha = 0.85f))
+                    .border(1.dp, BorderGraphite, RoundedCornerShape(20.dp))
                     .padding(20.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -170,8 +166,8 @@ fun AdminDashboardScreenPremium() {
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSel) VpnColors.surfaceCardSolid else VpnColors.surfaceInner)
-                                    .border(1.dp, if (isSel) VpnColors.TextPrimary else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .background(if (isSel) AccentNeonGreen.copy(alpha = 0.12f) else SurfaceInner)
+                                    .border(1.dp, if (isSel) AccentNeonGreen.copy(alpha = 0.4f) else BorderGraphite, RoundedCornerShape(8.dp))
                                     .clickable { grantTariff = t }
                                     .padding(vertical = 10.dp),
                                 contentAlignment = Alignment.Center
@@ -180,7 +176,7 @@ fun AdminDashboardScreenPremium() {
                                     text = t,
                                     style = VpnTypography.buttonText.copy(
                                         fontSize = 11.sp,
-                                        color = if (isSel) VpnColors.TextPrimary else VpnColors.TextSecondary
+                                        color = if (isSel) AccentNeonGreen else VpnColors.TextSecondary
                                     )
                                 )
                             }
@@ -204,21 +200,20 @@ fun AdminDashboardScreenPremium() {
                             .padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(text = Trans.get("grant_access"), style = VpnTypography.buttonText)
+                        Text(text = Trans.get("grant_access"), style = VpnTypography.buttonText.copy(color = Color.White))
                     }
 
                     actionResult?.let {
                         Text(
                             text = it,
                             style = VpnTypography.cardSubtitle.copy(
-                                color = if (it.startsWith("OK")) VpnColors.accentGreen else VpnColors.accentError
+                                color = if (it.startsWith("OK")) AccentNeonGreen else AccentError
                             )
                         )
                     }
                 }
             }
 
-            // ─── Recent Users List ───
             if (users != null) {
                 Text(
                     text = Trans.get("recent_users"),
@@ -233,8 +228,8 @@ fun AdminDashboardScreenPremium() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(VpnColors.surfaceInner)
-                                .border(1.dp, VpnColors.borderLight, RoundedCornerShape(16.dp))
+                                .background(SurfaceInner)
+                                .border(1.dp, BorderGraphite, RoundedCornerShape(16.dp))
                                 .padding(16.dp)
                         ) {
                             Row(
@@ -257,12 +252,9 @@ fun AdminDashboardScreenPremium() {
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     val hasTariff = u.has("tariff")
-                                    Text(
+                                    NeonPill(
                                         text = u.optString("tariff", Trans.get("none")),
-                                        style = VpnTypography.buttonText.copy(
-                                            fontSize = 12.sp,
-                                            color = if (hasTariff) VpnColors.accentGreen else VpnColors.TextSecondary
-                                        )
+                                        color = if (hasTariff) AccentNeonGreen else TextMuted
                                     )
                                     Text(
                                         text = "${Trans.get("dev")}: ${u.optInt("device_count", 0)}",
@@ -279,8 +271,6 @@ fun AdminDashboardScreenPremium() {
     }
 }
 
-// ─── UI Helpers ───
-
 @Composable
 private fun PremiumStatCard(
     label: String,
@@ -292,8 +282,8 @@ private fun PremiumStatCard(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(VpnColors.surfaceGlass)
-            .border(1.dp, VpnColors.borderLight, RoundedCornerShape(16.dp))
+            .background(SurfaceGlass.copy(alpha = 0.85f))
+            .border(1.dp, BorderGraphite, RoundedCornerShape(16.dp))
             .padding(16.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -305,7 +295,7 @@ private fun PremiumStatCard(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.15f)),
+                    .background(accentColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(imageVector = icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(16.dp))
@@ -333,15 +323,15 @@ private fun PremiumOutlinedField(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        placeholder = { Text(placeholder, color = VpnColors.borderLight) },
+        placeholder = { Text(placeholder, color = BorderGraphite) },
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = VpnColors.TextPrimary,
-            unfocusedBorderColor = VpnColors.borderLight,
+            focusedBorderColor = AccentNeonGreen,
+            unfocusedBorderColor = BorderGraphite,
             focusedTextColor = VpnColors.TextPrimary,
             unfocusedTextColor = VpnColors.TextPrimary,
-            cursorColor = VpnColors.accentGreen,
-            focusedContainerColor = VpnColors.surfaceInner,
-            unfocusedContainerColor = VpnColors.surfaceInner
+            cursorColor = AccentNeonGreen,
+            focusedContainerColor = SurfaceInner,
+            unfocusedContainerColor = SurfaceInner
         ),
         modifier = modifier,
         shape = RoundedCornerShape(12.dp),

@@ -8,47 +8,59 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Design tokens for the premium dark VPN home screen.
- * Reuses the existing palette values so the rest of the app stays in sync.
+ * Design tokens for the RedShift VPN premium redesign.
+ * Dark graphite + glassmorphism + neon-green accents.
  */
 object VpnColors {
-    val Background = CyberBackground
-    val BackgroundTop = Color(0xFF061426)
-    val BackgroundDeep = CyberBackgroundDeep
+    val Background = BackgroundGraphite
+    val BackgroundTop = BackgroundGraphite
+    val BackgroundMid = BackgroundGraphiteMid
+    val BackgroundDeep = BackgroundGraphiteDeep
 
-    val Surface = CyberCard
-    val SurfaceElevated = CyberElevated
-    val SurfaceNav = Color(0xFF172238)
-    val SurfaceButton = VpnSurfaceTertiary
+    val Surface = SurfaceGlass
+    val SurfaceElevated = SurfaceElevated
+    val SurfaceNav = Color(0xFF111420)
+    val SurfaceButton = SurfaceInner
 
     val TextPrimary = com.example.ui.theme.TextPrimary
     val TextSecondary = com.example.ui.theme.TextSecondary
     val TextMuted = com.example.ui.theme.TextMuted
 
-    val Success = SuccessGreen
+    val Success = AccentNeonGreen
     val SuccessDark = Color(0xFF1D7D45)
-    val Warning = WarningAmber
-    val Error = ErrorRed
+    val Warning = AccentWarning
+    val Error = AccentError
 
-    val AccentBlue = PremiumBlue
-    val AccentPurple = PremiumPurple
-    val BrandCyan = Color(0xFF25B9FF)
+    val AccentBlue = com.example.ui.theme.AccentBlue
+    val AccentPurple = PremiumStart
+    val BrandCyan = PremiumCyan
 
-    val Divider = VpnDivider
+    val Divider = BorderGraphite
     val Icon = Color(0xFFF7F9FC)
 
-    // Home redesign (from AI reference spec)
+    // Glass system
     val surfaceGlass = SurfaceGlass
+    val surfaceGlassLight = SurfaceGlassLight
     val surfaceInner = SurfaceInner
     val borderLight = BorderGraphite
+    val borderGlass = BorderGlass
     val accentGreen = AccentNeonGreen
+    val accentGreenSoft = AccentGreenSoft
+    val accentGreenGlow = AccentGreenGlow
     val accentWarning = AccentWarning
     val accentError = AccentError
     val premiumGradient = listOf(PremiumStart, PremiumEnd)
 
-    // Servers screen (from AI reference spec)
+    // Servers screen
     val surfaceCardSolid = SurfaceCardSolid
     val textTertiary = TextTertiary
+
+    // Planet
+    val planetOcean = PlanetOcean
+    val planetLand = PlanetLand
+    val planetAtmosphere = PlanetAtmosphere
+    val planetGlow = PlanetGlow
+    val spaceDark = SpaceDark
 }
 
 object VpnDimensions {
@@ -63,13 +75,17 @@ object VpnDimensions {
     val TopBarHeight = 56.dp
     val BottomNavHeight = 76.dp
 
-    val PowerButtonCompact = 148.dp
-    val PowerButtonDefault = 164.dp
-    val PowerButtonWide = 176.dp
+    val PowerButtonCompact = 120.dp
+    val PowerButtonDefault = 132.dp
+    val PowerButtonWide = 148.dp
 
     val FloatingCardMinHeight = 104.dp
     val ServerCardMinHeight = 84.dp
     val ConnectTouchTarget = 48.dp
+
+    // Planet
+    val PlanetSize = 280.dp
+    val PlanetGlowSpread = 40.dp
 }
 
 object VpnTypography {
@@ -81,9 +97,8 @@ object VpnTypography {
     val Endpoint = 15.sp
     val SecurityLabel = 16.sp
 
-    // Home redesign styles (from AI reference spec)
     val timer = TextStyle(
-        fontSize = 42.sp,
+        fontSize = 44.sp,
         fontWeight = FontWeight.Bold,
         color = TextPrimary,
         fontFeatureSettings = "tnum"
@@ -136,17 +151,21 @@ object VpnTypography {
 
 val MainBackgroundBrush = Brush.verticalGradient(
     colors = listOf(
-        VpnColors.BackgroundTop,
-        VpnColors.Background,
-        VpnColors.BackgroundDeep
+        BackgroundGraphite,
+        BackgroundGraphiteMid,
+        BackgroundGraphiteDeep
     )
 )
 
 val AccentBrush = Brush.horizontalGradient(
-    colors = listOf(VpnColors.AccentBlue, VpnColors.AccentPurple)
+    colors = listOf(PremiumStart, PremiumEnd)
 )
 
-/** Ping quality color thresholds (shared with server lists when applicable). */
+val GreenAccentBrush = Brush.horizontalGradient(
+    colors = listOf(AccentNeonGreen, AccentGreenBright)
+)
+
+/** Ping quality color thresholds. */
 fun pingQualityColor(pingMs: Int): Color {
     if (pingMs <= 0) return VpnColors.TextMuted
     return when {

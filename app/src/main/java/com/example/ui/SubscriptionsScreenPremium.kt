@@ -28,7 +28,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -49,8 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.VpnColors
-import com.example.ui.theme.VpnTypography
+import com.example.ui.theme.*
 
 @Composable
 fun SubscriptionsScreenPremium(
@@ -63,13 +61,12 @@ fun SubscriptionsScreenPremium(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(VpnColors.Background)
+            .background(BackgroundGraphite)
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ─── Header ───
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -79,13 +76,12 @@ fun SubscriptionsScreenPremium(
                 text = Trans.get("tab_subscriptions"),
                 style = VpnTypography.statusMain.copy(fontSize = 24.sp, color = VpnColors.TextPrimary)
             )
-
             Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(VpnColors.surfaceInner)
-                    .border(1.dp, VpnColors.borderLight, CircleShape)
+                    .background(SurfaceInner)
+                    .border(1.dp, BorderGraphite, CircleShape)
                     .clickable {
                         isRefreshing = true
                         val url = RedShiftState.subscriptionUrl
@@ -100,16 +96,15 @@ fun SubscriptionsScreenPremium(
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Update all",
-                    tint = VpnColors.TextPrimary,
+                    tint = AccentNeonGreen,
                     modifier = Modifier.size(20.dp)
                 )
             }
         }
 
-        // ─── Content ───
         if (isRefreshing) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = VpnColors.accentGreen)
+                CircularProgressIndicator(color = AccentNeonGreen)
             }
         } else {
             LazyColumn(
@@ -119,7 +114,6 @@ fun SubscriptionsScreenPremium(
                 items(RedShiftState.subscriptions) { sub ->
                     SubscriptionGlassCard(sub = sub)
                 }
-
                 item {
                     AddSubscriptionButton(onClick = {
                         onAddSubscriptionClick()
@@ -146,18 +140,17 @@ fun SubscriptionsScreenPremium(
 private fun SubscriptionGlassCard(sub: Subscription) {
     val context = LocalContext.current
     val isStatusOk = sub.status == "OK"
-    val statusColor = if (isStatusOk) VpnColors.accentGreen else VpnColors.accentError
+    val statusColor = if (isStatusOk) AccentNeonGreen else AccentError
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(VpnColors.surfaceGlass)
-            .border(1.dp, VpnColors.borderLight, RoundedCornerShape(20.dp))
+            .background(SurfaceGlass.copy(alpha = 0.85f))
+            .border(1.dp, BorderGraphite, RoundedCornerShape(20.dp))
             .padding(16.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Title Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -168,7 +161,6 @@ private fun SubscriptionGlassCard(sub: Subscription) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    // Status Dot
                     Box(
                         modifier = Modifier
                             .size(12.dp)
@@ -183,7 +175,6 @@ private fun SubscriptionGlassCard(sub: Subscription) {
                                 .background(statusColor)
                         )
                     }
-
                     Text(
                         text = sub.name,
                         style = VpnTypography.cardTitle,
@@ -194,8 +185,9 @@ private fun SubscriptionGlassCard(sub: Subscription) {
 
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(VpnColors.surfaceInner)
+                        .clip(RoundedCornerShape(100.dp))
+                        .background(AccentNeonGreen.copy(alpha = 0.1f))
+                        .border(0.5.dp, AccentNeonGreen.copy(alpha = 0.3f), RoundedCornerShape(100.dp))
                         .clickable {
                             RedShiftState.importSubscription(sub.url)
                             Toast.makeText(context, "Synchronizing nodes...", Toast.LENGTH_SHORT).show()
@@ -209,18 +201,17 @@ private fun SubscriptionGlassCard(sub: Subscription) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Sync",
-                            tint = VpnColors.TextPrimary,
+                            tint = AccentNeonGreen,
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
                             text = "Sync",
-                            style = VpnTypography.buttonText.copy(fontSize = 12.sp)
+                            style = VpnTypography.buttonText.copy(fontSize = 12.sp, color = AccentNeonGreen)
                         )
                     }
                 }
             }
 
-            // URL
             Text(
                 text = sub.url,
                 style = VpnTypography.cardSubtitle.copy(fontFamily = FontFamily.Monospace),
@@ -228,25 +219,23 @@ private fun SubscriptionGlassCard(sub: Subscription) {
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Info Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "${sub.serverCount} servers found",
-                    style = VpnTypography.cardTitle.copy(fontSize = 13.sp)
+                NeonPill(
+                    text = "${sub.serverCount} servers",
+                    color = AccentNeonGreen
                 )
                 Text(
                     text = "Expires: in ${sub.expiryDays} days",
                     style = VpnTypography.cardSubtitle.copy(
-                        color = if (sub.expiryDays < 7) VpnColors.accentWarning else VpnColors.accentGreen
+                        color = if (sub.expiryDays < 7) AccentWarning else AccentNeonGreen
                     )
                 )
             }
 
-            // Footer
             Text(
                 text = "Last updated: " + sub.lastUpdated,
                 style = VpnTypography.statsLabel
@@ -261,7 +250,7 @@ private fun AddSubscriptionButton(onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(VpnColors.surfaceInner)
+            .background(SurfaceInner)
             .border(
                 width = 1.dp,
                 brush = Brush.horizontalGradient(VpnColors.premiumGradient),
@@ -307,7 +296,7 @@ private fun AddSubscriptionDialogPremium(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = VpnColors.surfaceGlass,
+        containerColor = BackgroundGraphiteMid,
         titleContentColor = VpnColors.TextPrimary,
         textContentColor = VpnColors.TextSecondary,
         shape = RoundedCornerShape(24.dp),
@@ -319,15 +308,15 @@ private fun AddSubscriptionDialogPremium(
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
-                    placeholder = { Text("https://...", color = VpnColors.borderLight) },
+                    placeholder = { Text("https://...", color = BorderGraphite) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = VpnColors.TextPrimary,
-                        unfocusedBorderColor = VpnColors.borderLight,
+                        focusedBorderColor = AccentNeonGreen,
+                        unfocusedBorderColor = BorderGraphite,
                         focusedTextColor = VpnColors.TextPrimary,
                         unfocusedTextColor = VpnColors.TextPrimary,
-                        cursorColor = VpnColors.accentGreen,
-                        focusedContainerColor = VpnColors.surfaceInner,
-                        unfocusedContainerColor = VpnColors.surfaceInner
+                        cursorColor = AccentNeonGreen,
+                        focusedContainerColor = SurfaceInner,
+                        unfocusedContainerColor = SurfaceInner
                     ),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -341,7 +330,7 @@ private fun AddSubscriptionDialogPremium(
                     if (url.isNotBlank()) onAdd(url.trim())
                 }
             ) {
-                Text("Add", style = VpnTypography.buttonText.copy(color = VpnColors.accentGreen))
+                Text("Add", style = VpnTypography.buttonText.copy(color = AccentNeonGreen))
             }
         },
         dismissButton = {
