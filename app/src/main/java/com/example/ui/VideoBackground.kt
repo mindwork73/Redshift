@@ -2,18 +2,22 @@
 
 package com.example.ui
 
+import android.content.res.AssetFileDescriptor
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
-import android.view.View
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.R
@@ -21,9 +25,8 @@ import com.example.ui.theme.BackgroundNavy
 import com.example.ui.theme.BackgroundNavyDeep
 
 /**
- * Looped video background using AndroidView + MediaPlayer.
- * Renders planet.mp4 from res/raw as a fullscreen looping background
- * with a gradient scrim overlay for text readability.
+ * Fullscreen looping video background based on a TextureView + MediaPlayer.
+ * The video is muted and cropped to fill the screen.
  */
 @Composable
 fun VideoBackground(
@@ -33,9 +36,9 @@ fun VideoBackground(
 ) {
     val context = LocalContext.current
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var surface by remember { mutableStateOf<Surface?>(null) }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // Video layer
         AndroidView(
             factory = { ctx ->
                 TextureView(ctx).apply {
@@ -45,20 +48,19 @@ fun VideoBackground(
                             width: Int,
                             height: Int
                         ) {
-                            val surface = Surface(surfaceTexture)
+                            val textureSurface = Surface(surfaceTexture)
+                            surface = textureSurface
+
+                            val afd: AssetFileDescriptor = ctx.resources.openRawResourceFd(videoResId)
                             val player = MediaPlayer().apply {
-                                setDataSource(
-                                    ctx.resources.openRawResourceFd(videoResId).let { fd ->
-                                        fd.fileDescriptor
-                                    },
-                                    0,
-                                    ctx.resources.openRawResourceFd(videoResId).length
-                                )
+                                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                                afd.close()
+                                setSurface(textureSurface)
                                 isLooping = true
-                                setSurface(surface)
+                                setVolume(0f, 0f)
                                 setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING)
-                                setOnPreparedListener { mp ->
-                                    mp.start()
+                                setOnPreparedListener { prepared ->
+                                    prepared.start()
                                 }
                                 prepareAsync()
                             }
@@ -69,15 +71,17 @@ fun VideoBackground(
                             surfaceTexture: SurfaceTexture,
                             width: Int,
                             height: Int
-                        ) {}
+                        ) = Unit
 
                         override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
                             mediaPlayer?.release()
                             mediaPlayer = null
+                            surface?.release()
+                            surface = null
                             return true
                         }
 
-                        override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {}
+                        override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
                     }
                 }
             },
@@ -85,22 +89,15 @@ fun VideoBackground(
             update = {}
         )
 
-        // Gradient scrim overlay for readability
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            BackgroundNavy.copy(alpha = scrimOpacity * 0.7f),
-                            BackgroundNavy.copy(alpha = scrimOpacity * 0.3f),
-                            BackgroundNavy.copy(alpha = scrimOpacity * 0.5f),
-                            BackgroundNavyDeep.copy(alpha = scrimOpacity * 0.95f)
-                        ),
                         colorStops = arrayOf(
-                            0.0f to BackgroundNavy.copy(alpha = scrimOpacity * 0.7f),
-                            0.3f to BackgroundNavy.copy(alpha = scrimOpacity * 0.2f),
-                            0.6f to BackgroundNavy.copy(alpha = scrimOpacity * 0.5f),
+                            0.0f to BackgroundNavy.copy(alpha = scrimOpacity * 0.70f),
+                            0.30f to BackgroundNavy.copy(alpha = scrimOpacity * 0.20f),
+                            0.60f to BackgroundNavy.copy(alpha = scrimOpacity * 0.50f),
                             1.0f to BackgroundNavyDeep.copy(alpha = scrimOpacity * 0.95f)
                         )
                     )
@@ -108,10 +105,10 @@ fun VideoBackground(
         )
     }
 
-    // Cleanup on disposal
     DisposableEffect(Unit) {
         onDispose {
             mediaPlayer?.release()
+            surface?.release()
         }
     }
 }

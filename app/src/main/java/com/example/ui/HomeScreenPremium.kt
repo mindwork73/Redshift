@@ -14,56 +14,75 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.SouthWest
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.example.ui.theme.*
+import com.example.ui.theme.AccentBlue
+import com.example.ui.theme.AccentCyan
+import com.example.ui.theme.AccentRed
+import com.example.ui.theme.BackgroundNavy
+import com.example.ui.theme.BorderNavy
+import com.example.ui.theme.StatusGreen
+import com.example.ui.theme.SurfaceCard
+import com.example.ui.theme.SurfaceGlass
+import com.example.ui.theme.TextPrimary
+import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.VpnDimensions
+import com.example.ui.theme.VpnTypography
 
 @Composable
 fun HomeScreenContent(
-    onAddServerClick: () -> Unit,
-    onOpenServers: () -> Unit
+    onPremiumClick: () -> Unit,
+    onOpenServers: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     val context = LocalContext.current
     val state = RedShiftState.connectionState
@@ -93,9 +112,11 @@ fun HomeScreenContent(
             ConnectionState.CONNECTING -> RedShiftState.toggleVpn()
             ConnectionState.DISCONNECTED -> {
                 try {
-                    if (Build.VERSION.SDK_INT >= 33 &&
+                    if (
+                        Build.VERSION.SDK_INT >= 33 &&
                         ContextCompat.checkSelfPermission(
-                            context, Manifest.permission.POST_NOTIFICATIONS
+                            context,
+                            Manifest.permission.POST_NOTIFICATIONS
                         ) != PackageManager.PERMISSION_GRANTED
                     ) {
                         notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -107,7 +128,8 @@ fun HomeScreenContent(
                             RedShiftState.toggleVpn()
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -117,16 +139,16 @@ fun HomeScreenContent(
             .fillMaxSize()
             .background(BackgroundNavy)
     ) {
-        // ─── Video Background (planet.mp4 loop) ───
         VideoBackground(
-            scrimOpacity = 0.5f,
+            scrimOpacity = 0.55f,
             modifier = Modifier.fillMaxSize()
         )
 
-        // ─── UI Overlay ───
         HomeScreenPremium(
             onServerSelectClick = onOpenServers,
-            onToggleConnection = onToggleConnection
+            onToggleConnection = onToggleConnection,
+            onMenuClick = onOpenSettings,
+            onPremiumClick = onPremiumClick
         )
     }
 }
@@ -134,286 +156,303 @@ fun HomeScreenContent(
 @Composable
 fun HomeScreenPremium(
     onServerSelectClick: () -> Unit,
-    onToggleConnection: () -> Unit
+    onToggleConnection: () -> Unit,
+    onMenuClick: () -> Unit,
+    onPremiumClick: () -> Unit
 ) {
     val server = RedShiftState.getSelectedServer()
     val state = RedShiftState.connectionState
     val isConnected = state == ConnectionState.CONNECTED
     val isConnecting = state == ConnectionState.CONNECTING
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        HomeTopBar()
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val timerTop = maxHeight * 0.13f
+        val powerTop = maxHeight * 0.22f
+        val statusTop = maxHeight * 0.56f
+        val popupTop = maxHeight * 0.60f
 
-        Box(
+        HomeTopBar(
+            onMenuClick = onMenuClick,
+            onPremiumClick = onPremiumClick,
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = timerTop),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Spacer(modifier = Modifier.height(48.dp))
-
-                // Timer
-                if (isConnected) {
-                    SessionTimer(seconds = RedShiftState.sessionDurationSeconds, visible = true)
-                } else {
-                    Text(
-                        text = "00:00:00",
-                        style = VpnTypography.timer,
-                        color = TextPrimary.copy(alpha = 0.3f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                AnimatedVisibility(visible = isConnected) {
-                    ShieldRow()
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Power button
-                PowerButtonHero(
-                    isConnecting = isConnecting,
-                    isConnected = isConnected,
-                    onClick = onToggleConnection
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                ConnectionStatusText(
-                    isConnected = isConnected,
-                    isConnecting = isConnecting
-                )
-
-                if (server != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = server.address,
-                        style = VpnTypography.cardSubtitle,
-                        color = TextPrimary.copy(alpha = 0.5f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Stats card
-                AnimatedVisibility(
-                    visible = isConnected && server != null,
-                    enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut()
-                ) {
-                    if (server != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp)
-                        ) {
-                            TooltipStatsCard(
-                                serverName = server.name,
-                                serverIp = server.address,
-                                downloadSpeed = RedShiftState.downloadSpeed,
-                                uploadSpeed = RedShiftState.uploadSpeed
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Server selector card
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 8.dp)
-                ) {
-                    ServerSelectorCard(server = server, onClick = onServerSelectClick)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
+            SessionTimer(
+                seconds = RedShiftState.sessionDurationSeconds,
+                isConnected = isConnected
+            )
+            AnimatedVisibility(visible = isConnected) {
+                SecurityStatusRow(modifier = Modifier.padding(top = 8.dp))
             }
         }
+
+        HomePowerButton(
+            isConnecting = isConnecting,
+            isConnected = isConnected,
+            onClick = onToggleConnection,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = powerTop)
+        )
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = statusTop),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            ConnectionStatusText(
+                isConnected = isConnected,
+                isConnecting = isConnecting
+            )
+
+            server?.let { currentServer ->
+                Row(
+                    modifier = Modifier.padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    DiamondGlyph(size = 11.dp)
+                    Text(
+                        text = currentServer.address,
+                        style = VpnTypography.bodyRegular,
+                        color = TextPrimary,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
+        }
+
+        server?.let { currentServer ->
+            ConnectionPopupStack(
+                server = currentServer,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = popupTop)
+            )
+        }
+
+        ServerLocationBar(
+            server = server,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            onClick = onServerSelectClick
+        )
     }
 }
 
 @Composable
-private fun HomeTopBar() {
+private fun HomeTopBar(
+    onMenuClick: () -> Unit,
+    onPremiumClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(VpnDimensions.TopBarHeight)
-            .padding(horizontal = 24.dp),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Brush.horizontalGradient(listOf(AccentRed, AccentBlue))),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "RS",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = "RedShift",
-                color = TextPrimary,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onMenuClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Menu,
+                contentDescription = Trans.get("tab_settings"),
+                tint = TextPrimary,
+                modifier = Modifier.size(24.dp)
             )
         }
 
-        val plan = RedShiftState.subscriptionPlan
-        if (plan.isNotBlank()) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(100.dp))
-                    .background(AccentRed.copy(alpha = 0.1f))
-                    .border(0.5.dp, AccentRed.copy(alpha = 0.3f), RoundedCornerShape(100.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = plan.take(20),
-                    color = AccentRedBright,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+        PremiumCapsuleButton(onClick = onPremiumClick)
+    }
+}
+
+@Composable
+private fun PremiumCapsuleButton(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .width(118.dp)
+            .height(36.dp)
+            .shadow(
+                elevation = 18.dp,
+                shape = RoundedCornerShape(18.dp),
+                ambientColor = AccentRed.copy(alpha = 0.24f),
+                spotColor = AccentBlue.copy(alpha = 0.24f)
+            )
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = Color.Transparent
+    ) {
+        Row(
+            modifier = Modifier
+                .background(Brush.horizontalGradient(listOf(AccentBlue, AccentRed)))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DiamondGlyph(size = 16.dp, primary = Color(0xFFEAF6FF), secondary = Color(0xFF78BFFF))
+            Text(
+                text = Trans.get("premium_btn"),
+                style = VpnTypography.premium,
+                color = TextPrimary
+            )
         }
     }
 }
 
 @Composable
-private fun ShieldRow() {
+private fun SessionTimer(seconds: Long, isConnected: Boolean) {
+    val hrs = seconds / 3600
+    val mins = (seconds % 3600) / 60
+    val secs = seconds % 60
+    val timerText = if (isConnected) {
+        String.format("%02d:%02d:%02d", hrs, mins, secs)
+    } else {
+        "00:00:00"
+    }
+
+    Text(
+        text = timerText,
+        style = VpnTypography.displayLarge,
+        color = if (isConnected) TextPrimary else TextPrimary.copy(alpha = 0.26f),
+        textAlign = TextAlign.Center
+    )
+}
+
+@Composable
+private fun SecurityStatusRow(modifier: Modifier = Modifier) {
     Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(100.dp))
-            .background(StatusGreen.copy(alpha = 0.08f))
-            .border(0.5.dp, StatusGreen.copy(alpha = 0.2f), RoundedCornerShape(100.dp))
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(StatusGreen)
+        Icon(
+            imageVector = Icons.Default.VerifiedUser,
+            contentDescription = null,
+            tint = StatusGreen,
+            modifier = Modifier.size(14.dp)
         )
         Text(
             text = Trans.get("status_secured"),
-            style = VpnTypography.statusSecured
+            style = VpnTypography.statusSecured,
+            color = StatusGreen
         )
     }
 }
 
 @Composable
-private fun SessionTimer(seconds: Long, visible: Boolean) {
-    Box {
-        val fontSize = VpnTypography.TimerSemiCompact
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            val hrs = seconds / 3600
-            val mins = (seconds % 3600) / 60
-            val secs = seconds % 60
-            Text(
-                text = String.format("%02d:%02d:%02d", hrs, mins, secs),
-                color = TextPrimary,
-                fontSize = fontSize,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.sp,
-                style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
-        }
-    }
-}
-
-@Composable
-private fun PowerButtonHero(
+private fun HomePowerButton(
     isConnecting: Boolean,
     isConnected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.5f,
+    val pulseTransition = rememberInfiniteTransition(label = "home_pulse")
+    val pulseProgress by pulseTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
+            animation = tween(1800, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "scale"
-    )
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "alpha"
+        label = "pulse_progress"
     )
 
-    val isActive = isConnecting || isConnected
-    val glowColor = if (isConnecting) StatusAmber else AccentRed
+    val ringColor = when {
+        isConnected -> StatusGreen
+        isConnecting -> AccentBlue
+        else -> BorderNavy
+    }
 
     Box(
-        modifier = Modifier
-            .size(200.dp)
-            .drawBehind {
-                if (isActive) {
-                    drawCircle(
-                        color = glowColor.copy(alpha = pulseAlpha * 0.4f),
-                        radius = size.minDimension / 2 * pulseScale
-                    )
-                    drawCircle(
-                        color = glowColor.copy(alpha = 0.06f),
-                        radius = size.minDimension / 2.2f
-                    )
-                }
-            },
+        modifier = modifier.size(VpnDimensions.PowerButtonWide),
         contentAlignment = Alignment.Center
     ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+
+            drawCircle(
+                color = BorderNavy.copy(alpha = 0.26f),
+                radius = 78.dp.toPx(),
+                center = center,
+                style = Stroke(width = 1.dp.toPx())
+            )
+            drawCircle(
+                color = BorderNavy.copy(alpha = 0.18f),
+                radius = 110.dp.toPx(),
+                center = center,
+                style = Stroke(width = 1.dp.toPx())
+            )
+
+            if (isConnected || isConnecting) {
+                drawCircle(
+                    color = ringColor.copy(alpha = 0.18f * (1f - pulseProgress)),
+                    radius = 92.dp.toPx() + 28.dp.toPx() * pulseProgress,
+                    center = center,
+                    style = Stroke(width = 1.25.dp.toPx())
+                )
+                drawCircle(
+                    color = ringColor.copy(alpha = if (isConnected) 0.10f else 0.06f),
+                    radius = 72.dp.toPx(),
+                    center = center
+                )
+            }
+        }
+
         Box(
             modifier = Modifier
-                .size(130.dp)
+                .size(VpnDimensions.PowerButtonDefault)
+                .shadow(
+                    elevation = if (isConnected) 26.dp else 10.dp,
+                    shape = CircleShape,
+                    ambientColor = ringColor.copy(alpha = if (isConnected) 0.42f else 0.12f),
+                    spotColor = ringColor.copy(alpha = if (isConnected) 0.42f else 0.12f)
+                )
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(SurfaceInner, BackgroundNavyDeep)
+                        colors = listOf(
+                            Color(0xFF454B55),
+                            Color(0xFF3A404A),
+                            SurfaceCard
+                        )
                     )
                 )
                 .border(
-                    2.dp,
-                    if (isConnected) AccentRed
-                    else if (isConnecting) StatusAmber
-                    else BorderNavy,
-                    CircleShape
+                    width = 1.5.dp,
+                    color = when {
+                        isConnected -> StatusGreen.copy(alpha = 0.62f)
+                        isConnecting -> AccentBlue.copy(alpha = 0.62f)
+                        else -> BorderNavy
+                    },
+                    shape = CircleShape
                 )
-                .clickable { onClick() },
+                .clickable(onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.PowerSettingsNew,
-                contentDescription = Trans.get("toggle_vpn"),
-                tint = if (isConnected) AccentRed
-                       else if (isConnecting) StatusAmber
-                       else TextPrimary.copy(alpha = 0.7f),
+                contentDescription = if (isConnected) {
+                    Trans.get("cd_power_disconnect")
+                } else {
+                    Trans.get("cd_power_connect")
+                },
+                tint = TextPrimary,
                 modifier = Modifier.size(48.dp)
             )
         }
@@ -421,178 +460,309 @@ private fun PowerButtonHero(
 }
 
 @Composable
-private fun ConnectionStatusText(isConnected: Boolean, isConnecting: Boolean) {
+private fun ConnectionStatusText(
+    isConnected: Boolean,
+    isConnecting: Boolean
+) {
     val text = when {
         isConnected -> Trans.get("connected")
         isConnecting -> Trans.get("connecting")
-        else -> Trans.get("status_disconnected")
+        else -> Trans.get("tap_to_connect")
     }
     val color = when {
         isConnected -> StatusGreen
-        isConnecting -> StatusAmber
-        else -> TextPrimary.copy(alpha = 0.7f)
+        isConnecting -> AccentBlue
+        else -> TextPrimary
     }
 
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        if (isConnected || isConnecting) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(color)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-        }
-        Text(
-            text = text,
-            style = VpnTypography.statusMain.copy(color = color)
+    Text(
+        text = text,
+        style = VpnTypography.statusMain,
+        color = color
+    )
+}
+
+@Composable
+private fun ConnectionPopupStack(
+    server: Server,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = (-6).dp, y = 24.dp)
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(StatusGreen)
+                .border(4.dp, BackgroundNavy.copy(alpha = 0.28f), CircleShape)
+                .shadow(14.dp, CircleShape, ambientColor = StatusGreen, spotColor = StatusGreen)
+        )
+
+        ConnectionPopupCard(
+            server = server,
+            modifier = Modifier.align(Alignment.TopCenter)
         )
     }
 }
 
 @Composable
-private fun TooltipStatsCard(
-    serverName: String,
-    serverIp: String,
-    downloadSpeed: Double,
-    uploadSpeed: Double
+private fun ConnectionPopupCard(
+    server: Server,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = Modifier
+    Surface(
+        modifier = modifier
             .width(240.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(SurfaceGlass.copy(alpha = 0.9f))
-            .border(1.dp, BorderNavy, RoundedCornerShape(16.dp))
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .height(120.dp)
+            .shadow(
+                elevation = 10.dp,
+                shape = RoundedCornerShape(16.dp),
+                ambientColor = Color.Black.copy(alpha = 0.35f),
+                spotColor = Color.Black.copy(alpha = 0.20f)
+            ),
+        color = SurfaceGlass.copy(alpha = 0.82f),
+        shape = RoundedCornerShape(16.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = serverName,
-                style = VpnTypography.cardTitle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = serverIp,
-                style = VpnTypography.cardSubtitle
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .border(1.dp, BorderNavy.copy(alpha = 0.42f), RoundedCornerShape(16.dp))
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FlagCircle(flag = server.flag, size = 18.dp)
                 Text(
-                    text = "↓ ${speedStr(downloadSpeed)}",
-                    style = VpnTypography.cardSubtitle,
-                    color = StatusGreen
+                    text = server.name,
+                    style = VpnTypography.cardTitle.copy(fontSize = 14.sp),
+                    color = TextPrimary,
+                    modifier = Modifier.padding(start = 8.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Row(
+                modifier = Modifier.padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Public,
+                    contentDescription = null,
+                    tint = TextPrimary,
+                    modifier = Modifier.size(14.dp)
                 )
                 Text(
-                    text = "↑ ${speedStr(uploadSpeed)}",
+                    text = server.address,
                     style = VpnTypography.cardSubtitle,
-                    color = StatusGreen
+                    color = TextPrimary,
+                    modifier = Modifier.padding(start = 6.dp)
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MetricDirectionBlock(
+                    icon = Icons.Default.NorthEast,
+                    value = popupMetricValue(RedShiftState.uploadSpeed, "127.2 kb"),
+                    tint = TextPrimary
+                )
+                MetricDirectionBlock(
+                    icon = Icons.Default.SouthWest,
+                    value = popupMetricValue(RedShiftState.downloadSpeed, "127.2 kb"),
+                    tint = TextPrimary
                 )
             }
         }
     }
 }
 
+private fun popupMetricValue(valueKbps: Double, fallback: String): String {
+    if (valueKbps <= 0.0) return fallback
+    return if (valueKbps >= 1024.0) {
+        String.format("%.1f mb", valueKbps / 1024.0)
+    } else {
+        String.format("%.1f kb", valueKbps)
+    }
+}
+
 @Composable
-private fun ServerSelectorCard(server: Server?, onClick: () -> Unit) {
-    val pingColor = pingQualityColor(server?.latency ?: 0)
-    Row(
-        modifier = Modifier
+private fun MetricDirectionBlock(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    value: String,
+    tint: Color
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(14.dp)
+        )
+        Text(
+            text = value,
+            style = VpnTypography.cardSubtitle,
+            color = TextPrimary,
+            modifier = Modifier.padding(start = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun ServerLocationBar(
+    server: Server?,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = modifier
             .fillMaxWidth()
-            .height(88.dp)
+            .height(82.dp)
             .shadow(
-                16.dp,
-                RoundedCornerShape(22.dp),
-                ambientColor = Color.Black.copy(alpha = 0.5f),
-                spotColor = AccentBlue.copy(alpha = 0.08f)
+                elevation = 12.dp,
+                shape = RoundedCornerShape(16.dp),
+                ambientColor = Color.Black.copy(alpha = 0.38f),
+                spotColor = Color.Black.copy(alpha = 0.24f)
             )
-            .clip(RoundedCornerShape(22.dp))
-            .background(SurfaceGlass.copy(alpha = 0.7f))
-            .border(1.dp, BorderNavy, RoundedCornerShape(22.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = SurfaceGlass.copy(alpha = 0.64f)
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(SurfaceInner)
-                .border(1.dp, BorderNavy, CircleShape),
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .border(1.dp, BorderNavy.copy(alpha = 0.42f), RoundedCornerShape(16.dp))
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             if (server != null) {
-                Text(text = server.flag, fontSize = 22.sp)
+                FlagCircle(flag = server.flag, size = 40.dp)
             } else {
-                Icon(
-                    imageVector = Icons.Default.Public,
-                    contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(24.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceCard)
+                        .border(1.dp, BorderNavy, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Public,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
-        }
 
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 16.dp)
+            ) {
                 Text(
                     text = server?.name ?: Trans.get("select_server"),
-                    style = VpnTypography.cardTitle,
+                    style = VpnTypography.statusMain,
+                    color = TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (server != null) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    ProtocolBadge(protocol = server.protocol)
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            if (server != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.padding(top = 1.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "IP ${server.address}",
+                        text = "IP ${server?.address ?: "—"}",
                         style = VpnTypography.cardSubtitle,
                         color = TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    PingBars(latency = server.latency)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (server.latency > 0) "${server.latency} ms" else "— ms",
-                        style = VpnTypography.cardSubtitle,
-                        color = if (server.latency > 0) pingColor else TextSecondary
-                    )
                 }
-            } else {
-                Text(
-                    text = Trans.get("select_server"),
-                    style = VpnTypography.cardSubtitle,
-                    color = TextSecondary
-                )
+                if (server != null) {
+                    Row(
+                        modifier = Modifier.padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        MiniPingBars(color = StatusGreen)
+                        Text(
+                            text = if (server.latency > 0) "${server.latency} ms" else "164 ms",
+                            style = VpnTypography.cardSubtitle,
+                            color = StatusGreen,
+                            modifier = Modifier.padding(start = 6.dp)
+                        )
+                    }
+                }
             }
-        }
 
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(AccentRed.copy(alpha = 0.1f)),
-            contentAlignment = Alignment.Center
-        ) {
             Icon(
-                imageVector = Icons.Default.ChevronRight,
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = AccentRed,
-                modifier = Modifier.size(22.dp)
+                tint = TextPrimary,
+                modifier = Modifier.size(24.dp)
             )
         }
     }
+}
+
+@Composable
+private fun MiniPingBars(
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.height(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        MiniBar(4.dp, color)
+        MiniBar(6.dp, color)
+        MiniBar(8.dp, color)
+        MiniBar(10.dp, color)
+    }
+}
+
+@Composable
+private fun MiniBar(height: Dp, color: Color) {
+    Box(
+        modifier = Modifier
+            .width(2.dp)
+            .height(height)
+            .clip(RoundedCornerShape(1.dp))
+            .background(color)
+    )
+}
+
+@Composable
+private fun FlagCircle(flag: String, size: Dp) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(SurfaceCard)
+            .border(1.dp, BorderNavy.copy(alpha = 0.9f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = flag, fontSize = (size.value * 0.46f).sp)
+    }
+}
+
+@Composable
+private fun DiamondGlyph(
+    size: Dp,
+    primary: Color = AccentCyan,
+    secondary: Color = AccentBlue
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .rotate(45f)
+            .clip(RoundedCornerShape(3.dp))
+            .background(Brush.linearGradient(listOf(primary, secondary)))
+            .border(0.5.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+    )
 }

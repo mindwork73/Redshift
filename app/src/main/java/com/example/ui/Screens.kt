@@ -63,13 +63,15 @@ fun MainAppContainer() {
 
                 Scaffold(
                     bottomBar = {
-                        CyberBottomBar(
-                            selectedTab = currentTab,
-                            onTabSelected = {
-                                if (it == "add_server") showAddServerSheet = true
-                                else currentTab = it
-                            }
-                        )
+                        if (currentTab == "settings") {
+                            CyberBottomBar(
+                                selectedTab = currentTab,
+                                onTabSelected = {
+                                    if (it == "add_server") showAddServerSheet = true
+                                    else currentTab = it
+                                }
+                            )
+                        }
                     },
                     containerColor = Color.Transparent
                 ) { paddingValues ->
@@ -85,8 +87,9 @@ fun MainAppContainer() {
                         ) { tab ->
                             when (tab) {
                                 "dashboard" -> HomeScreen(
-                                    onAddServerClick = { showAddServerSheet = true },
-                                    onOpenServers = { currentTab = "servers" }
+                                    onPremiumClick = { showAddServerSheet = true },
+                                    onOpenServers = { currentTab = "servers" },
+                                    onOpenSettings = { currentTab = "settings" }
                                 )
                                 "servers" -> ServersScreen(
                                     onOpenHome = { currentTab = "dashboard" },
@@ -113,9 +116,17 @@ fun MainAppContainer() {
 }
 
 @Composable
-fun HomeScreen(onAddServerClick: () -> Unit, onOpenServers: () -> Unit) {
+fun HomeScreen(
+    onPremiumClick: () -> Unit,
+    onOpenServers: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
     Box(modifier = Modifier.fillMaxSize().background(BackgroundNavy)) {
-        HomeScreenContent(onAddServerClick = onAddServerClick, onOpenServers = onOpenServers)
+        HomeScreenContent(
+            onPremiumClick = onPremiumClick,
+            onOpenServers = onOpenServers,
+            onOpenSettings = onOpenSettings
+        )
     }
 }
 
@@ -144,7 +155,7 @@ fun CyberBottomBar(selectedTab: String, onTabSelected: (String) -> Unit) {
             .fillMaxWidth()
             .shadow(24.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), ambientColor = Color.Black.copy(alpha = 0.6f))
             .windowInsetsPadding(WindowInsets.navigationBars),
-        color = Color(0xDD0A111B)
+        color = Color(0xDD0A0E17)
     ) {
         Column {
             HorizontalDivider(color = BorderNavy.copy(alpha = 0.5f), thickness = 1.dp)

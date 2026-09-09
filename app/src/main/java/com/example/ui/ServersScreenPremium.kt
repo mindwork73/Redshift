@@ -1,16 +1,41 @@
 package com.example.ui
 
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,13 +43,27 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.*
+import com.example.ui.theme.AccentBlue
+import com.example.ui.theme.AccentRed
+import com.example.ui.theme.BackgroundNavy
+import com.example.ui.theme.BorderNavy
+import com.example.ui.theme.StatusGreen
+import com.example.ui.theme.SurfaceCard
+import com.example.ui.theme.SurfaceInner
+import com.example.ui.theme.TextMuted
+import com.example.ui.theme.TextPrimary
+import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.VpnTypography
 
 @Composable
 fun ServersScreenPremium(
@@ -35,198 +74,563 @@ fun ServersScreenPremium(
     onToggleConnection: () -> Unit
 ) {
     val activeServer = RedShiftState.getSelectedServer()
-    val isConnected = RedShiftState.connectionState == ConnectionState.CONNECTED
+    val connectionState = RedShiftState.connectionState
+    val isConnected = connectionState == ConnectionState.CONNECTED
+    val isConnecting = connectionState == ConnectionState.CONNECTING
 
-    Column(
+    val availableServers = servers.filter { it.id != activeServer?.id }
+    val freeServers = availableServers.take(2)
+    val premiumServers = availableServers.drop(2)
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BackgroundNavy)
-    ) {
-        // ─── Top Bar ───
-        Row(
-            modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 24.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(SurfaceInner).border(1.dp, BorderNavy, CircleShape).clickable { onBackClick() }, contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.ArrowBackIosNew, Trans.get("back"), tint = TextPrimary, modifier = Modifier.size(18.dp))
-            }
-            Text(Trans.get("tab_servers"), style = VpnTypography.statusMain.copy(color = TextPrimary))
-            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(SurfaceInner).border(1.dp, BorderNavy, CircleShape).clickable { onSettingsClick() }, contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Settings, Trans.get("tab_settings"), tint = TextPrimary, modifier = Modifier.size(18.dp))
-            }
-        }
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            // ─── Active Server Hero Card ───
-            if (activeServer != null) {
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    ActiveServerHeroCard(
-                        server = activeServer,
-                        isConnected = isConnected,
-                        downloadSpeed = RedShiftState.downloadSpeed,
-                        uploadSpeed = RedShiftState.uploadSpeed,
-                        onToggle = onToggleConnection
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        BackgroundNavy,
+                        BackgroundNavy,
+                        Color(0xFF102238)
                     )
-                    Spacer(modifier = Modifier.height(28.dp))
+                )
+            )
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            ServersTopBar(
+                onBackClick = onBackClick,
+                onSettingsClick = onSettingsClick
+            )
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp)
+            ) {
+                activeServer?.let { server ->
+                    item {
+                        ActiveServerCard(
+                            server = server,
+                            connectionState = connectionState,
+                            onToggle = onToggleConnection
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
                 }
-            }
 
-            item {
-                Text(Trans.get("all_servers"), style = VpnTypography.headerSection, modifier = Modifier.padding(bottom = 16.dp))
-            }
+                if (freeServers.isNotEmpty()) {
+                    item { SectionHeader(title = "Free server") }
+                    itemsIndexed(freeServers, key = { _, item -> item.id }) { index, server ->
+                        ServerListItem(
+                            server = server,
+                            isPremium = false,
+                            isSelected = server.id == RedShiftState.selectedServerId,
+                            showDivider = index != freeServers.lastIndex,
+                            subtitle = "${sampleServerCount(server.name, false)} servers",
+                            onSelected = { onServerSelect(server) },
+                            onConnect = {
+                                onServerSelect(server)
+                                if (!isConnected && !isConnecting) onToggleConnection()
+                            }
+                        )
+                    }
+                }
 
-            if (servers.isEmpty()) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Icon(Icons.Default.Public, null, tint = TextMuted, modifier = Modifier.size(48.dp))
-                            Text(Trans.get("empty_servers"), style = VpnTypography.cardSubtitle)
+                if (premiumServers.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(24.dp))
+                        SectionHeader(title = "Premium server")
+                    }
+                    itemsIndexed(premiumServers, key = { _, item -> item.id }) { index, server ->
+                        ServerListItem(
+                            server = server,
+                            isPremium = true,
+                            isSelected = server.id == RedShiftState.selectedServerId,
+                            showDivider = index != premiumServers.lastIndex,
+                            subtitle = "${sampleServerCount(server.name, true)} servers",
+                            onSelected = { onServerSelect(server) },
+                            onConnect = {
+                                onServerSelect(server)
+                                if (!isConnected && !isConnecting) onToggleConnection()
+                            }
+                        )
+                    }
+                }
+
+                if (activeServer == null && servers.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 72.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = Trans.get("empty_servers"),
+                                style = VpnTypography.bodyRegular,
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center
+                            )
                         }
                     }
                 }
-            }
-
-            items(servers) { server ->
-                ServerListItem(
-                    server = server,
-                    isSelected = server.id == RedShiftState.selectedServerId,
-                    onSelected = { onServerSelect(server) },
-                    onConnect = { onServerSelect(server); onToggleConnection() }
-                )
-                Spacer(modifier = Modifier.height(10.dp))
             }
         }
     }
 }
 
 @Composable
-private fun ActiveServerHeroCard(
+private fun ServersTopBar(
+    onBackClick: () -> Unit,
+    onSettingsClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        HeaderIconButton(
+            onClick = onBackClick,
+            icon = Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = Trans.get("back")
+        )
+        Text(
+            text = "Server",
+            style = VpnTypography.titleLarge,
+            color = TextPrimary
+        )
+        HeaderIconButton(
+            onClick = onSettingsClick,
+            icon = Icons.Default.Settings,
+            contentDescription = Trans.get("tab_settings")
+        )
+    }
+}
+
+@Composable
+private fun HeaderIconButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = TextPrimary,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@Composable
+private fun ActiveServerCard(
     server: Server,
-    isConnected: Boolean,
-    downloadSpeed: Double,
-    uploadSpeed: Double,
+    connectionState: ConnectionState,
     onToggle: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "hero")
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f, targetValue = 0.6f,
-        animationSpec = infiniteRepeatable(tween(2000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "glow"
-    )
+    val isConnected = connectionState == ConnectionState.CONNECTED
+    val buttonText = when (connectionState) {
+        ConnectionState.CONNECTED -> Trans.get("disconnect")
+        ConnectionState.CONNECTING -> Trans.get("connecting")
+        ConnectionState.DISCONNECTED -> Trans.get("connect")
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .height(240.dp)
+            .shadow(
+                elevation = 14.dp,
+                shape = RoundedCornerShape(24.dp),
+                ambientColor = Color.Black.copy(alpha = 0.34f),
+                spotColor = Color.Black.copy(alpha = 0.24f)
+            )
             .clip(RoundedCornerShape(24.dp))
-            .background(SurfaceGlassBright.copy(alpha = 0.7f))
-            .border(1.dp, if (isConnected) AccentRed.copy(alpha = glowAlpha) else BorderNavy, RoundedCornerShape(24.dp))
-            .padding(20.dp)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF1E2530),
+                        Color(0xFF232C38),
+                        Color(0xFF273240)
+                    )
+                )
+            )
+            .padding(20.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(48.dp).clip(CircleShape).background(SurfaceInner)
-                .border(1.dp, if (isConnected) AccentRed.copy(alpha = 0.5f) else BorderNavy, CircleShape), contentAlignment = Alignment.Center
-            ) { Text(server.flag, fontSize = 24.sp) }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text(server.name, style = VpnTypography.headerSection, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Public, null, tint = TextSecondary, modifier = Modifier.size(12.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(server.address, style = VpnTypography.cardSubtitle)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    ProtocolBadge(server.protocol)
+            FlagCircle(flag = server.flag, size = 48.dp)
+            Column(modifier = Modifier.padding(start = 16.dp)) {
+                Text(
+                    text = server.name,
+                    style = VpnTypography.countryTitle,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Public,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = server.address,
+                        style = VpnTypography.bodyRegular,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Stats row
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            ServersStatItem(Icons.Default.ArrowDownward, Trans.get("download"), if (isConnected) speedStr(downloadSpeed) else "0 KB/s", if (isConnected) StatusGreen else TextPrimary)
-            Box(modifier = Modifier.width(1.dp).height(32.dp).background(BorderNavy))
-            ServersStatItem(Icons.Default.SignalCellularAlt, Trans.get("ping"), "${server.latency}ms", pingQualityColor(server.latency))
-            Box(modifier = Modifier.width(1.dp).height(32.dp).background(BorderNavy))
-            ServersStatItem(Icons.Default.ArrowUpward, Trans.get("upload"), if (isConnected) speedStr(uploadSpeed) else "0 KB/s", if (isConnected) StatusGreen else TextPrimary)
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Connect/Disconnect button
         Row(
-            modifier = Modifier.fillMaxWidth().height(52.dp)
-                .clip(RoundedCornerShape(100.dp))
-                .background(if (isConnected) AccentRed.copy(alpha = 0.12f) else Brush.horizontalGradient(listOf(AccentRed, AccentBlue)))
-                .border(1.dp, if (isConnected) AccentRed.copy(alpha = 0.4f) else Color.Transparent, RoundedCornerShape(100.dp))
-                .clickable { onToggle() }.padding(horizontal = 8.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(if (isConnected) AccentRed else Color.White.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.ArrowForward, null, tint = if (isConnected) Color.White else Color.White, modifier = Modifier.size(18.dp))
-            }
+            MetricColumn(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.ArrowDownward,
+                label = Trans.get("download"),
+                value = if (isConnected) speedLabel(RedShiftState.downloadSpeed, "20mbps") else "20mbps",
+                iconTint = TextSecondary
+            )
+            VerticalMetricDivider()
+            MetricColumn(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.SignalCellularAlt,
+                label = Trans.get("ping"),
+                value = if (server.latency > 0) "${server.latency}ms" else "164ms",
+                iconTint = StatusGreen
+            )
+            VerticalMetricDivider()
+            MetricColumn(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.ArrowUpward,
+                label = Trans.get("upload"),
+                value = if (isConnected) speedLabel(RedShiftState.uploadSpeed, "16mbps") else "16mbps",
+                iconTint = TextSecondary
+            )
+        }
+
+        ConnectSliderButton(
+            text = buttonText,
+            onClick = onToggle
+        )
+    }
+}
+
+private fun speedLabel(valueKbps: Double, fallback: String): String {
+    if (valueKbps <= 0.0) return fallback
+    return if (valueKbps >= 1024.0) {
+        String.format("%.1fmbps", valueKbps / 1024.0)
+    } else {
+        String.format("%.0fkbps", valueKbps)
+    }
+}
+
+@Composable
+private fun MetricColumn(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    iconTint: Color
+) {
+    Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(14.dp)
+            )
             Text(
-                if (isConnected) Trans.get("disconnect") else Trans.get("connect"),
-                style = VpnTypography.buttonText.copy(color = if (isConnected) AccentRed else Color.White),
-                modifier = Modifier.weight(1f).padding(horizontal = 16.dp)
+                text = label,
+                style = VpnTypography.statsLabel,
+                color = TextSecondary,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
+        Text(
+            text = value,
+            style = VpnTypography.statsValue,
+            color = TextPrimary,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun VerticalMetricDivider() {
+    Box(
+        modifier = Modifier
+            .width(1.dp)
+            .height(36.dp)
+            .background(BorderNavy.copy(alpha = 0.8f))
+    )
+}
+
+@Composable
+private fun ConnectSliderButton(
+    text: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0xFF353D49))
+            .border(1.dp, BorderNavy, RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Brush.horizontalGradient(listOf(AccentBlue, AccentRed))),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                style = VpnTypography.statusMain,
+                color = TextPrimary
+            )
+            ChevronTrail(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp),
+                color = TextMuted
             )
         }
     }
 }
 
 @Composable
-private fun ServersStatItem(icon: ImageVector, label: String, value: String, iconTint: Color) {
-    Column(horizontalAlignment = Alignment.Start) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = iconTint, modifier = Modifier.size(14.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(label, style = VpnTypography.statsLabel)
-        }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(value, style = VpnTypography.statsValue)
+private fun ChevronTrail(
+    modifier: Modifier = Modifier,
+    color: Color
+) {
+    val transition = rememberInfiniteTransition(label = "chevrons")
+    val alphaA by transition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alphaA"
+    )
+    val alphaB by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, delayMillis = 120, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alphaB"
+    )
+    val alphaC by transition.animateFloat(
+        initialValue = 0.65f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, delayMillis = 240, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alphaC"
+    )
+
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = ">",
+            style = VpnTypography.buttonText.copy(fontWeight = FontWeight.Bold),
+            color = color.copy(alpha = alphaA)
+        )
+        Text(
+            text = ">",
+            style = VpnTypography.buttonText.copy(fontWeight = FontWeight.Bold),
+            color = color.copy(alpha = alphaB)
+        )
+        Text(
+            text = ">",
+            style = VpnTypography.buttonText.copy(fontWeight = FontWeight.Bold),
+            color = color.copy(alpha = alphaC)
+        )
     }
 }
 
 @Composable
-private fun ServerListItem(server: Server, isSelected: Boolean, onSelected: () -> Unit, onConnect: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (isSelected) SurfaceGlassBright.copy(alpha = 0.6f) else SurfaceCard.copy(alpha = 0.7f))
-            .border(1.dp, if (isSelected) AccentRed.copy(alpha = 0.4f) else BorderNavy.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-            .clickable { onSelected() }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(SurfaceInner)
-            .border(1.dp, if (isSelected) AccentRed.copy(alpha = 0.3f) else BorderNavy, CircleShape), contentAlignment = Alignment.Center
-        ) { Text(server.flag, fontSize = 20.sp) }
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = VpnTypography.headerSection,
+        color = TextPrimary.copy(alpha = 0.92f),
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+}
 
-        Spacer(modifier = Modifier.width(14.dp))
+@Composable
+private fun ServerListItem(
+    server: Server,
+    isPremium: Boolean,
+    isSelected: Boolean,
+    showDivider: Boolean,
+    subtitle: String,
+    onSelected: () -> Unit,
+    onConnect: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(72.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (isSelected) SurfaceCard.copy(alpha = 0.35f) else Color.Transparent)
+                .clickable(onClick = onSelected)
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FlagCircle(flag = server.flag, size = 32.dp)
 
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(server.name, style = VpnTypography.cardTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (isSelected) { Spacer(Modifier.width(8.dp)); Box(Modifier.size(6.dp).clip(CircleShape).background(AccentRed)) }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 16.dp, end = 12.dp)
+            ) {
+                Text(
+                    text = server.name,
+                    style = VpnTypography.cardTitle,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    style = VpnTypography.cardSubtitle,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 2.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(server.protocol, style = VpnTypography.cardSubtitle)
-                Spacer(Modifier.width(8.dp))
-                Text("•", style = VpnTypography.cardSubtitle, color = TextMuted)
-                Spacer(Modifier.width(8.dp))
-                LatencyBadge(server.latency)
-            }
+
+            ConnectChip(
+                isPremium = isPremium,
+                onClick = onConnect
+            )
         }
 
-        Box(modifier = Modifier.clip(RoundedCornerShape(100.dp))
-            .background(if (isSelected) AccentRed.copy(alpha = 0.15f) else SurfaceInner)
-            .border(0.5.dp, if (isSelected) AccentRed.copy(alpha = 0.4f) else Color.Transparent, RoundedCornerShape(100.dp))
-            .clickable { onConnect() }.padding(horizontal = 14.dp, vertical = 8.dp)
-        ) { Text(Trans.get("connect"), style = VpnTypography.buttonText.copy(color = if (isSelected) AccentRed else TextPrimary)) }
+        if (showDivider) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(BorderNavy.copy(alpha = 0.6f))
+            )
+        }
     }
+}
+
+@Composable
+private fun ConnectChip(
+    isPremium: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .width(if (isPremium) 110.dp else 92.dp)
+            .height(36.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(SurfaceInner)
+            .border(1.dp, BorderNavy, RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isPremium) {
+            DiamondGlyph(size = 12.dp)
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+        Text(
+            text = Trans.get("connect"),
+            style = VpnTypography.buttonText,
+            color = TextPrimary
+        )
+    }
+}
+
+private fun sampleServerCount(name: String, premium: Boolean): Int {
+    val normalized = name.lowercase()
+    return when {
+        "singapore" in normalized -> 18
+        "russia" in normalized -> 12
+        "united state" in normalized || "usa" in normalized || "united states" in normalized -> 26
+        "canada" in normalized -> 21
+        "australia" in normalized -> 14
+        premium -> 20 + (normalized.length % 9)
+        else -> 10 + (normalized.length % 9)
+    }
+}
+
+@Composable
+private fun FlagCircle(flag: String, size: Dp) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(SurfaceCard)
+            .border(1.dp, BorderNavy.copy(alpha = 0.9f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = flag, fontSize = (size.value * 0.46f).sp)
+    }
+}
+
+@Composable
+private fun DiamondGlyph(
+    size: Dp,
+    primary: Color = Color(0xFFEAF6FF),
+    secondary: Color = AccentBlue
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .rotate(45f)
+            .clip(RoundedCornerShape(3.dp))
+            .background(Brush.linearGradient(listOf(primary, secondary)))
+            .border(0.5.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
+    )
 }

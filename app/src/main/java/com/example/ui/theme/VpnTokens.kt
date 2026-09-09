@@ -15,7 +15,7 @@ object VpnColors {
 
     val Surface = SurfaceGlass
     val SurfaceElevated = SurfaceElevated
-    val SurfaceNav = Color(0xDD0A111B)
+    val SurfaceNav = Color(0xE60A0E17)
     val SurfaceButton = SurfaceInner
 
     val TextPrimary = com.example.ui.theme.TextPrimary
@@ -23,16 +23,16 @@ object VpnColors {
     val TextMuted = com.example.ui.theme.TextMuted
 
     val Success = StatusGreen
-    val SuccessDark = Color(0xFF1D7D45)
+    val SuccessDark = Color(0xFF0E8E52)
     val Warning = StatusAmber
     val Error = StatusRed
 
     val AccentBlue = com.example.ui.theme.AccentBlue
-    val AccentPurple = com.example.ui.theme.AccentBlue
+    val AccentPurple = com.example.ui.theme.AccentRed
     val BrandCyan = AccentCyan
 
     val Divider = BorderNavy
-    val Icon = Color(0xFFE8E8F0)
+    val Icon = TextPrimary
 
     // Glass system
     val surfaceGlass = SurfaceGlass
@@ -43,21 +43,19 @@ object VpnColors {
     val borderLight = BorderNavy
     val borderGlass = BorderGlass
 
-    // Accents (Red Pill primary, Blue secondary)
-    val accentPrimary = AccentRed           // Red Pill
+    // Accents
+    val accentPrimary = AccentRed
     val accentPrimarySoft = AccentRedSoft
     val accentPrimaryGlow = AccentRedGlow
-    val accentSecondary = AccentBlue        // Blue
+    val accentSecondary = AccentBlue
     val accentSecondarySoft = AccentBlueSoft
     val accentSecondaryGlow = AccentBlueGlow
-
-    // Legacy compat aliases
-    val accentGreen = AccentRed
-    val accentGreenSoft = AccentRedSoft
-    val accentGreenGlow = AccentRedGlow
+    val accentGreen = StatusGreen
+    val accentGreenSoft = AccentGreenSoft
+    val accentGreenGlow = AccentGreenGlow
     val accentWarning = StatusAmber
     val accentError = StatusRed
-    val premiumGradient = listOf(AccentRed, AccentBlue)
+    val premiumGradient = listOf(AccentBlue, AccentRed)
 
     val surfaceCardSolid = SurfaceCard
     val textTertiary = TextMuted
@@ -72,22 +70,22 @@ object VpnColors {
 
 object VpnDimensions {
     val ScreenPaddingCompact = 16.dp
-    val ScreenPaddingDefault = 22.dp
+    val ScreenPaddingDefault = 16.dp
 
-    val RadiusSmall = 14.dp
+    val RadiusSmall = 16.dp
     val RadiusMedium = 20.dp
-    val RadiusLarge = 28.dp
-    val RadiusXLarge = 36.dp
+    val RadiusLarge = 24.dp
+    val RadiusXLarge = 32.dp
 
     val TopBarHeight = 56.dp
     val BottomNavHeight = 72.dp
 
     val PowerButtonCompact = 120.dp
-    val PowerButtonDefault = 140.dp
-    val PowerButtonWide = 160.dp
+    val PowerButtonDefault = 120.dp
+    val PowerButtonWide = 240.dp
 
     val FloatingCardMinHeight = 104.dp
-    val ServerCardMinHeight = 84.dp
+    val ServerCardMinHeight = 72.dp
     val ConnectTouchTarget = 48.dp
 
     val PlanetSize = 280.dp
@@ -95,31 +93,46 @@ object VpnDimensions {
 }
 
 object VpnTypography {
-    val TimerSemiCompact = 42.sp
-    val TimerDefault = 48.sp
+    val TimerSemiCompact = 36.sp
+    val TimerDefault = 36.sp
     val StatusBig = 20.sp
     val StatusConnecting = 20.sp
-    val Endpoint = 15.sp
-    val SecurityLabel = 16.sp
+    val Endpoint = 14.sp
+    val SecurityLabel = 12.sp
 
-    val timer = TextStyle(
-        fontSize = 44.sp,
+    val displayLarge = TextStyle(
+        fontSize = 36.sp,
         fontWeight = FontWeight.Bold,
         color = TextPrimary,
+        letterSpacing = 0.sp,
         fontFeatureSettings = "tnum"
     )
-    val premium = TextStyle(
-        fontSize = 13.sp,
-        fontWeight = FontWeight.SemiBold,
+    val titleLarge = TextStyle(
+        fontSize = 20.sp,
+        fontWeight = FontWeight.Bold,
+        color = TextPrimary,
+        letterSpacing = 0.1.sp
+    )
+    val countryTitle = TextStyle(
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Bold,
         color = TextPrimary
+    )
+    val timer = displayLarge
+    val premium = TextStyle(
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = TextPrimary,
+        letterSpacing = 0.1.sp
     )
     val statusMain = TextStyle(
         fontSize = 16.sp,
-        fontWeight = FontWeight.SemiBold
+        fontWeight = FontWeight.SemiBold,
+        color = TextPrimary
     )
     val statusSecured = TextStyle(
         fontSize = 12.sp,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.Normal,
         color = StatusGreen
     )
     val cardTitle = TextStyle(
@@ -130,26 +143,31 @@ object VpnTypography {
     val cardSubtitle = TextStyle(
         fontSize = 12.sp,
         fontWeight = FontWeight.Normal,
-        color = TextMuted
+        color = TextSecondary
+    )
+    val bodyRegular = TextStyle(
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Normal,
+        color = TextPrimary
     )
     val headerSection = TextStyle(
-        fontSize = 18.sp,
-        fontWeight = FontWeight.Medium,
-        color = TextPrimary
+        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = TextSecondary
     )
     val statsValue = TextStyle(
         fontSize = 16.sp,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Bold,
         color = TextPrimary
     )
     val statsLabel = TextStyle(
         fontSize = 12.sp,
         fontWeight = FontWeight.Normal,
-        color = TextMuted
+        color = TextSecondary
     )
     val buttonText = TextStyle(
-        fontSize = 14.sp,
-        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
         color = TextPrimary
     )
 }
@@ -163,11 +181,11 @@ val MainBackgroundBrush = Brush.verticalGradient(
 )
 
 val AccentBrush = Brush.horizontalGradient(
-    colors = listOf(AccentRed, AccentBlue)
+    colors = listOf(AccentBlue, AccentRed)
 )
 
 val RedAccentBrush = Brush.horizontalGradient(
-    colors = listOf(AccentRed, AccentRedBright)
+    colors = listOf(AccentBlue, AccentRed)
 )
 
 fun pingQualityColor(pingMs: Int): Color {
