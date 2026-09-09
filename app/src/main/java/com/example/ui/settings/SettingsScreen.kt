@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DataUsage
-import androidx.compose.material.icons.filled.Globe
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
@@ -21,6 +20,7 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -138,7 +138,7 @@ fun SettingsScreen() {
                 title = t("ipv6_support"),
                 checked = RedShiftState.ipv6Support,
                 onCheckedChange = { RedShiftState.ipv6Support = it },
-                leadingIcon = Icons.Filled.Globe,
+                leadingIcon = Icons.Filled.Public,
                 showDivider = true
             )
             ToggleRow(

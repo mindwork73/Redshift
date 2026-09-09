@@ -282,3 +282,22 @@ if unresolved:
         print("  -", u)
 else:
     print("unresolved references: 0")
+
+# ── 9. every Icons.Filled.X used must be imported (member access is otherwise invisible) ──
+icon_problems = []
+for path in EDITABLE:
+    src = read(path)
+    imported_icons = set(
+        re.findall(r"^import androidx\.compose\.material\.icons\.(?:automirrored\.)?filled\.(\w+)$",
+                   src, re.M)
+    )
+    used_icons = set(re.findall(r"Icons\.(?:AutoMirrored\.)?Filled\.(\w+)", src))
+    for name in sorted(used_icons - imported_icons):
+        icon_problems.append(f"{os.path.basename(path)}: Icons.Filled.{name} used without an import")
+
+if icon_problems:
+    print(f"\nICON IMPORT PROBLEMS ({len(icon_problems)}):")
+    for i in icon_problems:
+        print("  -", i)
+else:
+    print("icon imports: all resolved")
