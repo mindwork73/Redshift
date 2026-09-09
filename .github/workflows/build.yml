@@ -58,6 +58,23 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Report compiler errors on the pull request
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "### Gradle failure for commit ${{ github.sha }}"
+            echo '```'
+            grep -E "^e: |FAILURE:|What went wrong|^> Task .* FAILED|Caused by:|error:" gradle_output.log | head -80
+            echo '```'
+            echo '```'
+            tail -40 gradle_output.log
+            echo '```'
+          } > /tmp/ci_report.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" --body-file /tmp/ci_report.md
+
       - name: Upload build logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
