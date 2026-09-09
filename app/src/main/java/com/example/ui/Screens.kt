@@ -118,7 +118,10 @@ fun MainAppContainer() {
                                     onAddServerClick = { showAddServerSheet = true },
                                     onOpenServers = { currentTab = "servers" }
                                 )
-                                "servers" -> ServersScreen(onAddServerClick = { showAddServerSheet = true })
+                                "servers" -> ServersScreen(
+                                    onOpenHome = { currentTab = "dashboard" },
+                                    onOpenSettings = { currentTab = "settings" }
+                                )
                                 "settings" -> SettingsScreen()
                             }
                         }
@@ -603,7 +606,10 @@ private fun MetricItem(
 }
 
 @Composable
-fun ServersScreen(onAddServerClick: () -> Unit) {
+fun ServersScreen(
+    onOpenHome: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
     val loggedIn = RedShiftState.isLoggedIn || RedShiftState.subscriptionUrl.isNotBlank()
     val context = LocalContext.current
 
@@ -617,7 +623,7 @@ fun ServersScreen(onAddServerClick: () -> Unit) {
 
     val notifPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
+    ) { _ ->
         val intent = VpnService.prepare(context)
         if (intent != null) {
             vpnPermissionLauncher.launch(intent)
@@ -664,232 +670,13 @@ fun ServersScreen(onAddServerClick: () -> Unit) {
         return
     }
 
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedProtocolFilter by remember { mutableStateOf("All") }
-
-    val filterChips = listOf("All", "AmneziaWG", "Hysteria 2", "VLESS", "Trojan", "Favorites")
-
-    fun protocolPriority(server: Server): Int {
-        val p = server.protocol.uppercase()
-        return when {
-            p.contains("AMNEZIA") || p.contains("AWG") || p.contains("WIREGUARD") -> 0
-            p.contains("HYSTERIA") || p == "HY2" || p == "H2" -> 1
-            p.contains("VLESS") -> 2
-            p.contains("TROJAN") -> 3
-            else -> 4
-        }
-    }
-
-    val filteredServers = RedShiftState.servers.filter { server ->
-        val matchesSearch = server.name.contains(searchQuery, ignoreCase = true) ||
-                            server.address.contains(searchQuery, ignoreCase = true) ||
-                            server.protocol.contains(searchQuery, ignoreCase = true)
-        val matchesFilter = when (selectedProtocolFilter) {
-            "All" -> true
-            "Favorites" -> server.latency < 25
-            else -> server.protocol.contains(selectedProtocolFilter, ignoreCase = true)
-        }
-        matchesSearch && matchesFilter
-    }.let { list ->
-        if (RedShiftState.sortByPing) {
-            val known = list.filter { it.latency > 0 && it.latency < 9000 }.sortedBy { it.latency }
-            val unknown = list.filter { it.latency <= 0 || it.latency >= 9000 }
-            known + unknown
-        } else {
-            list.sortedWith(compareBy({ protocolPriority(it) }, { it.name.lowercase() }))
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = Trans.get("tab_servers"),
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = TextPrimary
-            )
-
-            if (RedShiftState.getSelectedServer() != null) {
-                ActiveServerCard(onToggle = onConnect)
-            }
-
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text(text = Trans.get("search_placeholder"), fontSize = 13.sp, color = TextMuted) },
-                leadingIcon = {
-                    Icon(Icons.Default.Search, contentDescription = "Search", tint = TextSecondary, modifier = Modifier.size(18.dp))
-                },
-                trailingIcon = {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(RedPrimary.copy(alpha = 0.12f))
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    ) {
-                        Icon(Icons.Default.FilterList, contentDescription = "Filter", tint = RedPrimary, modifier = Modifier.size(16.dp))
-                    }
-                },
-                colors = outlinedTextFieldColors(),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                filterChips.forEach { chip ->
-                    val isActive = selectedProtocolFilter == chip
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isActive) RedPrimary else CyberCard.copy(alpha = 0.6f))
-                            .border(
-                                0.5.dp,
-                                if (isActive) RedPrimary else TextMuted.copy(alpha = 0.3f),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .clickable { selectedProtocolFilter = chip }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = chip,
-                            color = if (isActive) Color.White else TextSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                val pingActive = RedShiftState.sortByPing
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (pingActive) RedPrimary else CyberCard.copy(alpha = 0.6f))
-                        .border(
-                            0.5.dp,
-                            if (pingActive) RedPrimary else TextMuted.copy(alpha = 0.3f),
-                            RoundedCornerShape(8.dp)
-                        )
-                        .clickable { RedShiftState.sortByPing = !RedShiftState.sortByPing }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "⚡ Ping",
-                        color = if (pingActive) Color.White else TextSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            if (filteredServers.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(Icons.Default.Router, contentDescription = null, tint = TextMuted, modifier = Modifier.size(64.dp))
-                        Text(text = Trans.get("empty_servers"), color = TextSecondary, fontSize = 14.sp)
-                    }
-                }
-            } else {
-                val groups = filteredServers.groupBy { it.subscriptionUrl.ifEmpty { "_custom" } }
-                val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    groups.forEach { (subUrl, groupServers) ->
-                        val subName = if (subUrl == "_custom") "Custom Servers"
-                            else RedShiftState.subscriptions.find { it.url == subUrl }?.name
-                                ?: subUrl.split("/").lastOrNull()?.take(20) ?: "Subscription"
-                        val isExpanded = expandedGroups[subUrl] ?: (subUrl != "_custom")
-
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(CyberCard.copy(alpha = 0.6f))
-                                    .clickable { expandedGroups[subUrl] = !isExpanded }
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = if (isExpanded) "▼" else "▶",
-                                        color = RedPrimary,
-                                        fontSize = 11.sp
-                                    )
-                                    Text(
-                                        text = subName,
-                                        color = TextPrimary,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "(${groupServers.size})",
-                                        color = TextMuted,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                                if (subUrl != "_custom") {
-                                    Text(
-                                        text = if (isExpanded) "Collapse" else "Expand",
-                                        color = RedPrimary.copy(alpha = 0.7f),
-                                        fontSize = 10.sp
-                                    )
-                                }
-                            }
-                        }
-
-                        if (isExpanded) {
-                            items(groupServers) { server ->
-                                ServerItemCard(server = server, onConnect = onConnect)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 12.dp, end = 16.dp),
-            contentAlignment = Alignment.BottomEnd
-        ) {
-            FloatingActionButton(
-                onClick = onAddServerClick,
-                containerColor = RedPrimary,
-                contentColor = Color.White,
-                shape = CircleShape,
-                modifier = Modifier.size(52.dp)
-            ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "Add node")
-            }
-        }
-    }
+    ServersScreenPremium(
+        servers = RedShiftState.servers,
+        onBackClick = onOpenHome,
+        onSettingsClick = onOpenSettings,
+        onServerSelect = { server -> RedShiftState.selectedServerId = server.id },
+        onToggleConnection = onConnect
+    )
 }
 
 @Composable

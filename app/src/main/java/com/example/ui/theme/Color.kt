@@ -42,3 +42,18 @@ val GlowGreen = Color(0x3300E83F)
 // Glass
 val GlassCard = Color(0x992A3446)
 val GlassBorder = Color(0x22FFFFFF)
+
+// Home redesign (from AI reference spec)
+val BackgroundGraphite = Color(0xFF06070B)
+val SurfaceGlass = Color(0xCC131620)
+val SurfaceInner = Color(0xFF1D212E)
+val BorderGraphite = Color(0xFF2A2F40)
+val AccentNeonGreen = Color(0xFF00E676)
+val AccentWarning = Color(0xFFFFB300)
+val AccentError = Color(0xFFFF3B30)
+val PremiumStart = Color(0xFF7B38F8)
+val PremiumEnd = Color(0xFF4A90E2)
+
+// Servers screen (from AI reference spec)
+val SurfaceCardSolid = Color(0xFF1A1D29)
+val TextTertiary = Color(0xFF6B7280)

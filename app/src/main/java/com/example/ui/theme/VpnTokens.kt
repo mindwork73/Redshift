@@ -2,6 +2,8 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -34,6 +36,19 @@ object VpnColors {
 
     val Divider = VpnDivider
     val Icon = Color(0xFFF7F9FC)
+
+    // Home redesign (from AI reference spec)
+    val surfaceGlass = SurfaceGlass
+    val surfaceInner = SurfaceInner
+    val borderLight = BorderGraphite
+    val accentGreen = AccentNeonGreen
+    val accentWarning = AccentWarning
+    val accentError = AccentError
+    val premiumGradient = listOf(PremiumStart, PremiumEnd)
+
+    // Servers screen (from AI reference spec)
+    val surfaceCardSolid = SurfaceCardSolid
+    val textTertiary = TextTertiary
 }
 
 object VpnDimensions {
@@ -65,6 +80,58 @@ object VpnTypography {
     val StatusConnecting = 20.sp
     val Endpoint = 15.sp
     val SecurityLabel = 16.sp
+
+    // Home redesign styles (from AI reference spec)
+    val timer = TextStyle(
+        fontSize = 42.sp,
+        fontWeight = FontWeight.Bold,
+        color = TextPrimary,
+        fontFeatureSettings = "tnum"
+    )
+    val premium = TextStyle(
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = TextPrimary
+    )
+    val statusMain = TextStyle(
+        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+    val statusSecured = TextStyle(
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        color = AccentNeonGreen
+    )
+    val cardTitle = TextStyle(
+        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = TextPrimary
+    )
+    val cardSubtitle = TextStyle(
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Normal,
+        color = TextMuted
+    )
+    val headerSection = TextStyle(
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Medium,
+        color = TextPrimary
+    )
+    val statsValue = TextStyle(
+        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = TextPrimary
+    )
+    val statsLabel = TextStyle(
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Normal,
+        color = TextMuted
+    )
+    val buttonText = TextStyle(
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+        color = TextPrimary
+    )
 }
 
 val MainBackgroundBrush = Brush.verticalGradient(
