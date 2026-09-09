@@ -14,7 +14,7 @@ object VpnColors {
     val BackgroundDeep = BackgroundNavyDeep
 
     val Surface = SurfaceGlass
-    val SurfaceElevated = SurfaceElevated
+    val SurfaceElevated = com.example.ui.theme.SurfaceElevated
     val SurfaceNav = Color(0xE60A0E17)
     val SurfaceButton = SurfaceInner
 

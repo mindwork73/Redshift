@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -100,7 +101,7 @@ fun PulsingConnectionRing(connectionState: ConnectionState, onClick: () -> Unit,
 fun PowerIcon(color: Color, modifier: Modifier = Modifier) {
     androidx.compose.foundation.Canvas(modifier = modifier.size(32.dp)) {
         val w = size.width; val h = size.height
-        drawArc(color, -220f, 260f, false, Stroke(3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        drawArc(color = color, startAngle = -220f, sweepAngle = 260f, useCenter = false, style = Stroke(3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round))
         drawLine(color, Offset(w / 2, h / 5), Offset(w / 2, h / 2), 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
     }
 }
@@ -110,7 +111,7 @@ fun ShieldCheckIcon(color: Color, modifier: Modifier = Modifier) {
     androidx.compose.foundation.Canvas(modifier = modifier.size(32.dp)) {
         val w = size.width; val h = size.height
         val path = Path().apply { moveTo(w*0.15f,h*0.25f); lineTo(w*0.5f,h*0.12f); lineTo(w*0.85f,h*0.25f); cubicTo(w*0.85f,h*0.55f,w*0.5f,h*0.88f,w*0.5f,h*0.88f); cubicTo(w*0.5f,h*0.88f,w*0.15f,h*0.55f,w*0.15f,h*0.25f); close() }
-        drawPath(path, color, Stroke(3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        drawPath(path, color, style = Stroke(3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round))
         drawLine(color, Offset(w*0.35f,h*0.48f), Offset(w*0.47f,h*0.6f), 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
         drawLine(color, Offset(w*0.47f,h*0.6f), Offset(w*0.68f,h*0.38f), 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
     }
