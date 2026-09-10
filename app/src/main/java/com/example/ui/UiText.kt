@@ -17,6 +17,7 @@ import java.util.Locale
 object UiText {
 
     private val strings = mapOf(
+        "whitelist_servers" to mapOf("en" to "Whitelists", "ru" to "Белые списки"),
         // ── Navigation (§6) ──
         "nav_home" to mapOf("en" to "Home", "ru" to "Главная"),
         "nav_servers" to mapOf("en" to "Servers", "ru" to "Серверы"),
@@ -82,6 +83,7 @@ object UiText {
         "add_subscription" to mapOf("en" to "Add subscription", "ru" to "Добавить подписку"),
         "import_title" to mapOf("en" to "Import subscription", "ru" to "Импорт подписки"),
         "import_hint" to mapOf("en" to "vpn:// link or subscription URL", "ru" to "Ссылка vpn:// или URL подписки"),
+        "paste" to mapOf("en" to "Paste", "ru" to "Вставить"),
         "import_action" to mapOf("en" to "Import", "ru" to "Импортировать"),
         "importing" to mapOf("en" to "Importing…", "ru" to "Импорт…"),
         "import_empty_url" to mapOf("en" to "Paste a link first", "ru" to "Сначала вставьте ссылку"),
@@ -108,9 +110,32 @@ object UiText {
         "routing_direct" to mapOf("en" to "Direct", "ru" to "Напрямую"),
         "bypass_local" to mapOf("en" to "Bypass local addresses", "ru" to "Не пропускать локальные адреса"),
         "bypass_lan" to mapOf("en" to "Bypass LAN", "ru" to "Не пропускать локальную сеть"),
-        "bypass_china" to mapOf("en" to "Bypass China", "ru" to "Не пропускать Китай"),
-        "bypass_russia" to mapOf("en" to "Bypass Russia", "ru" to "Не пропускать Россию"),
+        "bypass_china" to mapOf("en" to "China — direct", "ru" to "Китай — напрямую"),
+        "bypass_russia" to mapOf("en" to "Russia — direct", "ru" to "Россия — напрямую"),
         "block_ads" to mapOf("en" to "Block ads", "ru" to "Блокировать рекламу"),
+        "section_split_tunnel" to mapOf("en" to "Split tunneling", "ru" to "Раздельное туннелирование"),
+        "split_tunnel" to mapOf("en" to "Split tunneling", "ru" to "Раздельное туннелирование"),
+        "split_tunnel_desc" to mapOf(
+            "en" to "Route only selected apps or sites through the VPN",
+            "ru" to "Пропускать через VPN только выбранные приложения или сайты"
+        ),
+        "split_by_apps" to mapOf("en" to "Apps", "ru" to "Приложения"),
+        "split_by_domains" to mapOf("en" to "Sites", "ru" to "Сайты"),
+        "split_only_selected" to mapOf("en" to "VPN for selected only", "ru" to "VPN только для выбранных"),
+        "split_exclude_selected" to mapOf("en" to "VPN for everything else", "ru" to "VPN для всего остального"),
+        "split_selected_count" to mapOf("en" to "Selected: %1\$d", "ru" to "Выбрано: %1\$d"),
+        "split_apps_title" to mapOf("en" to "Select apps", "ru" to "Выберите приложения"),
+        "split_domains_title" to mapOf("en" to "Selected sites", "ru" to "Выбранные сайты"),
+        "split_empty" to mapOf("en" to "Nothing selected", "ru" to "Ничего не выбрано"),
+        "split_add_domain" to mapOf("en" to "Add site", "ru" to "Добавить сайт"),
+        "split_domain_hint" to mapOf("en" to "example.com or *.com", "ru" to "example.com или *.com"),
+        "split_apps_empty_desc" to mapOf(
+            "en" to "No apps selected. Open the list and pick applications.",
+            "ru" to "Приложения не выбраны. Откройте список и отметьте приложения."
+        ),
+        "search_apps" to mapOf("en" to "Search apps", "ru" to "Поиск приложений"),
+        "split_apps_select_all" to mapOf("en" to "Select all", "ru" to "Выбрать все"),
+        "split_apps_clear" to mapOf("en" to "Clear", "ru" to "Сбросить"),
         "section_auto_refresh" to mapOf("en" to "Auto refresh", "ru" to "Автообновление"),
         "auto_refresh" to mapOf("en" to "Auto refresh subscriptions", "ru" to "Автообновление подписок"),
         "refresh_interval" to mapOf("en" to "Interval", "ru" to "Интервал"),
@@ -134,6 +159,7 @@ object UiText {
         "telegram_id" to mapOf("en" to "Telegram ID", "ru" to "Telegram ID"),
         "username" to mapOf("en" to "Username", "ru" to "Имя пользователя"),
         "not_signed_in" to mapOf("en" to "Not signed in", "ru" to "Не авторизован"),
+        "signed_in" to mapOf("en" to "Signed in", "ru" to "Авторизован"),
         "logout" to mapOf("en" to "Log out", "ru" to "Выйти"),
         "logout_confirm" to mapOf("en" to "Log out of RedShift?", "ru" to "Выйти из RedShift?"),
         "support_bot" to mapOf("en" to "Support bot", "ru" to "Бот поддержки"),
@@ -194,13 +220,22 @@ fun formatSpeedLabel(kiloBytesPerSecond: Double): String {
     }
 }
 
-/** `totalDataUsedMb` → one decimal, GB above 1024 MB (§8.1). */
+/** `totalDataUsedMb` → whole MB, whole GB above 1024 MB (§8.1). */
 fun formatTraffic(megaBytes: Double): String {
     val value = if (megaBytes < 0.0) 0.0 else megaBytes
     return if (value >= 1024.0) {
-        "${LocalizationState.formatSpeed(value / 1024.0)} ${t("unit_gb")}"
+        "${formatTrafficInt(value / 1024.0)} ${t("unit_gb")}"
     } else {
-        "${LocalizationState.formatSpeed(value)} ${t("unit_mb")}"
+        "${formatTrafficInt(value)} ${t("unit_mb")}"
+    }
+}
+
+/** Locale-aware whole number (no decimal places) — used for traffic figures. */
+fun formatTrafficInt(value: Double): String {
+    return try {
+        java.text.DecimalFormat("#,##0").format(value)
+    } catch (_: Exception) {
+        value.toLong().toString()
     }
 }
 

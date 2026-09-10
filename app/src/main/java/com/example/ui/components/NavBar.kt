@@ -87,7 +87,7 @@ private fun NavItem(
         MainTab.Settings -> Icons.Filled.Settings
         MainTab.Profile -> Icons.Filled.Person
     }
-    val tint: Color = if (selected) VpnColors.Accent else VpnColors.TextTertiary
+    val tint: Color = if (selected) VpnColors.Success else VpnColors.TextTertiary
 
     Column(
         modifier = modifier

@@ -57,6 +57,13 @@ import com.example.ui.theme.RedSize
 import com.example.ui.theme.RedSpace
 import com.example.ui.theme.RedType
 import com.example.ui.theme.VpnColors
+import java.util.Locale
+
+/** Servers whose name marks them as a whitelist ("БС"/"BS") go into a separate trailing section. */
+private fun isWhitelistServer(server: Server): Boolean {
+    val name = server.name.uppercase(Locale.US)
+    return name.contains("БС") || name.contains("BS")
+}
 
 /**
  * Servers tab (REDESIGN.md §8.2): the real `RedShiftState.servers` list — no limits,
@@ -71,8 +78,29 @@ fun ServersScreen() {
     val selectedId = RedShiftState.selectedServerId
     val sortByPing = RedShiftState.sortByPing
 
-    // Active server first; latency ordering only when the user opted into sortByPing (§8.2).
-    val ordered = servers.sortedWith(
+    // Whitelisted ("БС"/"BS") servers form their own trailing section (§ user request).
+    val whitelistedServers = servers.filter { isWhitelistServer(it) }
+    val regularServers = servers.filterNot { isWhitelistServer(it) }
+
+    // Order: Amnezia -> Hysteria -> Trojan/SS -> other protocols; active first, then latency, then name.
+    fun protocolGroup(server: Server): Int {
+        val p = server.protocol.uppercase(Locale.US)
+        return when {
+            p.contains("AMNEZIA") -> 0
+            p.contains("HYSTERIA") -> 1
+            p.contains("TROJAN") || p.contains("SHADOWSOCKS") || p == "SS" -> 2
+            else -> 3
+        }
+    }
+
+    val ordered = regularServers.sortedWith(
+        compareBy<Server> { protocolGroup(it) }
+            .thenByDescending { it.id == selectedId }
+            .thenBy { if (sortByPing && it.latency > 0) it.latency else Int.MAX_VALUE }
+            .thenBy { it.name }
+    )
+
+    val whitelistOrdered = whitelistedServers.sortedWith(
         compareByDescending<Server> { it.id == selectedId }
             .thenBy { if (sortByPing && it.latency > 0) it.latency else Int.MAX_VALUE }
             .thenBy { it.name }
@@ -100,12 +128,12 @@ fun ServersScreen() {
         if (servers.isEmpty()) {
             EmptyServers(onAddSubscription = { showImportSheet = true })
         } else {
-            SectionTitle(text = "${t("all_servers")} (${servers.size})")
+            SectionTitle(text = "${t("all_servers")} (${ordered.size})")
             Spacer(Modifier.height(RedSpace.Xs))
 
             GlassSurface(
                 modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = RedSpace.M, vertical = RedSpace.Xs)
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = RedSpace.Xs)
             ) {
                 ordered.forEachIndexed { index, server ->
                     ServerRow(
@@ -113,7 +141,7 @@ fun ServersScreen() {
                         isActive = server.id == selectedId,
                         showDivider = index != ordered.lastIndex,
                         onClick = {
-                            RedShiftState.selectedServerId = server.id
+                            RedShiftState.selectServer(server.id)
                             if (RedShiftState.connectionState != ConnectionState.CONNECTED) {
                                 RedShiftState.toggleVpn()
                             }
@@ -122,6 +150,34 @@ fun ServersScreen() {
                             if (server.isCustom) serverToDelete = server
                         }
                     )
+                }
+            }
+
+            if (whitelistOrdered.isNotEmpty()) {
+                Spacer(Modifier.height(RedSpace.M))
+                SectionTitle(text = t("whitelist_servers"))
+                Spacer(Modifier.height(RedSpace.Xs))
+
+                GlassSurface(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = RedSpace.Xs)
+                ) {
+                    whitelistOrdered.forEachIndexed { index, server ->
+                        ServerRow(
+                            server = server,
+                            isActive = server.id == selectedId,
+                            showDivider = index != whitelistOrdered.lastIndex,
+                            onClick = {
+                                RedShiftState.selectServer(server.id)
+                                if (RedShiftState.connectionState != ConnectionState.CONNECTED) {
+                                    RedShiftState.toggleVpn()
+                                }
+                            },
+                            onLongClick = {
+                                if (server.isCustom) serverToDelete = server
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -221,12 +277,12 @@ private fun ServerRow(
                 .fillMaxWidth()
                 .heightIn(min = RedSize.ServerRow)
                 .clip(RoundedCornerShape(RedRadius.Small))
-                .background(if (isActive) VpnColors.AccentSoft else Color.Transparent)
+                .background(if (isActive) VpnColors.SuccessSoft else Color.Transparent)
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick
                 )
-                .padding(vertical = RedSpace.S),
+                .padding(horizontal = RedSpace.M, vertical = RedSpace.S),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -295,7 +351,7 @@ private fun ServerRow(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 52.dp)
+                    .padding(start = 68.dp)
                     .height(0.5.dp)
                     .background(VpnColors.Divider)
             )

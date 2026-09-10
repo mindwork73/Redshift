@@ -8,6 +8,7 @@ class SingBoxConfigGenerator {
 
     companion object {
         const val CLASH_API_PORT = 9090
+        const val MIXED_PORT = 10809
         private const val REMOTE_DNS = "https://8.8.8.8/dns-query"
         private const val LOCAL_DNS = "77.88.8.8"
 
@@ -19,7 +20,7 @@ class SingBoxConfigGenerator {
         private const val DEFAULT_HY2_DOWN_MBPS = 100
     }
 
-    fun generateConfig(server: SubServer, socksPort: Int = 10808, filesDir: String = ""): String {
+    fun generateConfig(server: SubServer, socksPort: Int = 10808, filesDir: String = "", splitDomains: List<String> = emptyList(), splitOnly: Boolean = false): String {
         // Endpoints must be IPv4 literals in the generated config: sing-box would
         // otherwise resolve the peer/server domain through the tunnel's own DNS
         // (remote-dns detours to this outbound), which is a chicken-and-egg deadlock
@@ -36,7 +37,7 @@ class SingBoxConfigGenerator {
             put(JSONObject().apply { put("type", "direct"); put("tag", "direct") })
             put(JSONObject().apply { put("type", "block"); put("tag", "block") })
         })
-        config.put("route", buildRouteConfig(outTag, filesDir))
+        config.put("route", buildRouteConfig(outTag, filesDir, splitDomains, splitOnly))
         config.put("experimental", JSONObject().apply {
             put("clash_api", JSONObject().apply {
                 put("external_controller", "127.0.0.1:$CLASH_API_PORT")
@@ -93,6 +94,16 @@ class SingBoxConfigGenerator {
                     put("stack", "gvisor")
                     put("mtu", 1280)
                 })
+                // Local mixed proxy inside the tunnel: our own app traffic is
+                // disallowed from the TUN (addDisallowedApplication), so the only
+                // way it can measure servers "via proxy" (as Amnezia does) is to
+                // hop through this loopback inbound, which forwards over the tunnel.
+                put(JSONObject().apply {
+                    put("type", "mixed")
+                    put("tag", "mixed-in")
+                    put("listen", "127.0.0.1")
+                    put("listen_port", MIXED_PORT)
+                })
             })
         }
     }
@@ -130,8 +141,12 @@ class SingBoxConfigGenerator {
         }
     }
 
-    private fun buildRouteConfig(outboundTag: String, filesDir: String): JSONObject {
+    private fun buildRouteConfig(outboundTag: String, filesDir: String, splitDomains: List<String> = emptyList(), splitOnly: Boolean = false): JSONObject {
         val geoipPath = if (filesDir.isNotEmpty()) "$filesDir/geoip-ru.srs" else ""
+        val normalizedDomains = splitDomains
+            .map { it.trim().lowercase().removePrefix("https://").removePrefix("http://").removePrefix("*.") }
+            .filter { it.isNotBlank() }
+            .distinct()
         return JSONObject().apply {
             put("rules", JSONArray().apply {
                 put(JSONObject().apply {
@@ -143,15 +158,26 @@ class SingBoxConfigGenerator {
                     put("network", "udp")
                     put("outbound", "block")
                 })
-                put(JSONObject().apply {
-                    put("domain_suffix", JSONArray().apply { RU_DOMAIN_SUFFIXES.forEach { put(it) } })
-                    put("outbound", "direct")
-                })
-                if (geoipPath.isNotEmpty()) {
+                if (normalizedDomains.isNotEmpty()) {
                     put(JSONObject().apply {
-                        put("rule_set", JSONArray().apply { put("geoip-ru") })
+                        put("domain_suffix", JSONArray().apply { normalizedDomains.forEach { put(it) } })
+                        if (splitOnly) put("invert", true)
                         put("outbound", "direct")
                     })
+                }
+                // In "only these sites through the VPN" mode the built-in RU/direct
+                // rules would leak those sites outside the tunnel, so drop them.
+                if (!splitOnly || normalizedDomains.isEmpty()) {
+                    put(JSONObject().apply {
+                        put("domain_suffix", JSONArray().apply { RU_DOMAIN_SUFFIXES.forEach { put(it) } })
+                        put("outbound", "direct")
+                    })
+                    if (geoipPath.isNotEmpty()) {
+                        put(JSONObject().apply {
+                            put("rule_set", JSONArray().apply { put("geoip-ru") })
+                            put("outbound", "direct")
+                        })
+                    }
                 }
             })
             put("final", outboundTag)

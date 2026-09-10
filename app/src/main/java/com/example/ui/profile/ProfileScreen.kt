@@ -30,8 +30,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.net.Uri
 import com.example.ui.DASH
 import com.example.ui.RedShiftState
 import com.example.ui.UiText
@@ -48,8 +51,8 @@ import com.example.ui.theme.RedSpace
 import com.example.ui.theme.RedType
 import com.example.ui.theme.VpnColors
 
-/** Support bot handle — the same one the onboarding mentions (REDESIGN.md §8.0). */
-private const val SupportBot = "@redpillcloudbot"
+/** Support bot handle — the one the user reaches for real (typo for @redpillcloudbot handle is 100% broken). */
+private const val SupportBot = "@redpillcloud_bot"
 
 /**
  * Profile tab (REDESIGN.md §8.4): account identity, the real subscription and logout.
@@ -124,7 +127,7 @@ fun ProfileScreen() {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = if (RedShiftState.isLoggedIn) {
-                            username ?: t("not_signed_in")
+                            username ?: t("signed_in")
                         } else {
                             t("not_signed_in")
                         },
@@ -139,10 +142,6 @@ fun ProfileScreen() {
                             append(t("telegram_id"))
                             append(": ")
                             append(telegramId.ifBlank { DASH })
-                            if (username != null) {
-                                append(" · @")
-                                append(username)
-                            }
                         },
                         style = RedType.Caption,
                         color = VpnColors.TextTertiary,
@@ -219,10 +218,25 @@ fun ProfileScreen() {
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = RedSpace.M, vertical = RedSpace.Xs)
         ) {
+            val context = LocalContext.current
             ListItem(
                 title = t("support_bot"),
                 subtitle = SupportBot,
-                leadingIcon = Icons.Filled.Shield
+                leadingIcon = Icons.Filled.Shield,
+                showChevron = true,
+                onClick = {
+                    val tg = Intent(Intent.ACTION_VIEW, Uri.parse("tg://resolve?domain=redpillcloud_bot"))
+                    try {
+                        context.startActivity(tg)
+                    } catch (_: Exception) {
+                        try {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/redpillcloud_bot"))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (_: Exception) {}
+                    }
+                }
             )
         }
 

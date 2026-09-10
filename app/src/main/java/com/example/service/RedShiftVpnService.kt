@@ -42,6 +42,9 @@ class RedShiftVpnService : VpnService() {
     private var euProxyHost = "217.156.64.40"
     private var euProxyPort = 10810
 
+    private var splitApps: List<String> = emptyList()
+    private var splitAppsOnly = false
+
     private var nextConnectionId = 0
 
     companion object {
@@ -54,6 +57,8 @@ class RedShiftVpnService : VpnService() {
         const val EXTRA_USE_LOCAL_PROXY = "extra_use_local_proxy"
         const val EXTRA_SOCKS_LOGIN = "extra_socks_login"
         const val EXTRA_SOCKS_PASSWORD = "extra_socks_password"
+        const val EXTRA_SPLIT_APPS = "extra_split_apps"
+        const val EXTRA_SPLIT_APPS_ONLY = "extra_split_apps_only"
 
         const val ROUTE_NL = 0
         const val ROUTE_DIRECT = 1
@@ -133,6 +138,8 @@ class RedShiftVpnService : VpnService() {
             ACTION_CONNECT_AWG -> {
                 Log.e("RedShiftVPN", "AWG mode: establishing TUN for fd passing")
                 registerNetworkCallback()
+                splitApps = intent.getStringArrayExtra(EXTRA_SPLIT_APPS)?.toList() ?: emptyList()
+                splitAppsOnly = intent.getBooleanExtra(EXTRA_SPLIT_APPS_ONLY, false)
                 connectTunOnly()
             }
             ACTION_DISCONNECT -> {
@@ -247,6 +254,8 @@ class RedShiftVpnService : VpnService() {
             Log.e("RedShiftVPN", "addDisallowedApplication failed: ${e.message}")
         }
 
+        applySplitTunnel(builder)
+
         Log.e("RedShiftVPN", "Calling builder.establish()...")
         tunFd = builder.establish()
         if (tunFd == null) {
@@ -263,6 +272,36 @@ class RedShiftVpnService : VpnService() {
             debugLogVPN("VPN loop starting, fd.valid=${fd.fileDescriptor.valid()}")
             runVpnLoop(fd)
         }
+    }
+
+    private fun applySplitTunnel(builder: Builder) {
+        if (splitApps.isEmpty()) return
+        try {
+            if (splitAppsOnly) {
+                // "Only these apps go through the VPN": the rest bypass the tunnel.
+                splitApps.forEach { pkg ->
+                    try {
+                        builder.addAllowedApplication(pkg)
+                    } catch (e: Exception) {
+                        Log.e("RedShiftVPN", "addAllowedApplication($pkg) failed: ${e.message}")
+                    }
+                }
+                Log.e("RedShiftVPN", "Split tunnel (only): ${splitApps.size} apps allowed")
+            } else {
+                // "Everything except these apps": the rest bypass the tunnel.
+                splitApps.forEach { pkg ->
+                    try {
+                        builder.addDisallowedApplication(pkg)
+                    } catch (e: Exception) {
+                        Log.e("RedShiftVPN", "addDisallowedApplication($pkg) failed: ${e.message}")
+                    }
+                }
+                Log.e("RedShiftVPN", "Split tunnel (exclude): ${splitApps.size} apps bypass VPN")
+            }
+        } catch (e: Exception) {
+            Log.e("RedShiftVPN", "split tunnel failed: ${e.message}")
+        }
+        splitApps = emptyList()
     }
 
     private fun connectTunOnly() {
@@ -287,6 +326,8 @@ class RedShiftVpnService : VpnService() {
         } catch (e: Exception) {
             Log.e("RedShiftVPN", "addDisallowedApplication failed: ${e.message}")
         }
+
+        applySplitTunnel(builder)
 
         tunFd = builder.establish()
         if (tunFd == null) {

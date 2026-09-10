@@ -27,7 +27,6 @@ import com.example.ui.ConnectionState
 import com.example.ui.DASH
 import com.example.ui.RedShiftState
 import com.example.ui.components.GlassSurface
-import com.example.ui.components.PingPill
 import com.example.ui.components.PlanPill
 import com.example.ui.components.PowerButton
 import com.example.ui.components.Screen
@@ -163,22 +162,9 @@ fun HomeScreen(onOpenServers: () -> Unit) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text(
-                        text = if (server == null) {
-                            t("pick_server_hint")
-                        } else {
-                            "${server.address}:${server.port}"
-                        },
-                        style = RedType.Caption,
-                        color = VpnColors.TextTertiary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
 
                 Spacer(Modifier.width(RedSpace.S))
-
-                PingPill(latencyMs = server?.latency ?: 0)
             }
         }
 
