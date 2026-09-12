@@ -8,6 +8,9 @@ class SingBoxConfigGenerator {
 
     companion object {
         const val CLASH_API_PORT = 9090
+        const val MIXED_PORT = 10809
+        /** Local SOCKS5 port the olcRTC runtime binds before sing-box routes through it. */
+        const val OLCRTC_SOCKS_PORT = 8788
         private const val REMOTE_DNS = "https://8.8.8.8/dns-query"
         private const val LOCAL_DNS = "77.88.8.8"
 
@@ -15,28 +18,47 @@ class SingBoxConfigGenerator {
             ".ru", ".su", ".xn--p1ai", ".moscow", ".москва",
             ".yandex", ".ya.ru"
         )
+        /** A compact ad/tracker blocklist used by the "Block ads" routing toggle. */
+        val AD_DOMAIN_SUFFIXES = arrayOf(
+            ".doubleclick.net", ".googlesyndication.com", ".googleadservices.com",
+            ".adservice.google.com", ".googletagmanager.com", ".adform.net",
+            ".adnxs.com", ".adsrvr.org", ".adroll.com", ".amazon-adsystem.com",
+            ".moatads.com", ".outbrain.com", ".taboola.com", ".pubmatic.com",
+            ".rubiconproject.com", ".criteo.com", ".casalemedia.com",
+            ".scorecardresearch.com", ".quantserve.com", ".openx.net",
+            ".crwdcntrl.net", ".bluekai.com", ".demdex.net", ".adsystem.com",
+            ".provenance.ink", ".serverbid.com", ".spotx.tv", ".teads.tv"
+        )
         private const val DEFAULT_HY2_UP_MBPS = 20
         private const val DEFAULT_HY2_DOWN_MBPS = 100
     }
 
-    fun generateConfig(server: SubServer, socksPort: Int = 10808, filesDir: String = ""): String {
+    fun generateConfig(server: SubServer, socksPort: Int = 10808, filesDir: String = "", splitDomains: List<String> = emptyList(), splitOnly: Boolean = false, routingMode: String = "rule", bypassRussia: Boolean = true, bypassChina: Boolean = false, blockAds: Boolean = false): String {
         // Endpoints must be IPv4 literals in the generated config: sing-box would
         // otherwise resolve the peer/server domain through the tunnel's own DNS
         // (remote-dns detours to this outbound), which is a chicken-and-egg deadlock
         // while the tunnel is still being established (see: AWG handshake timeouts /
         // "failed to resolve endpoints"). Resolve locally, before the TUN is up.
-        val cfgServer = server.copy(address = resolveHostToIp(server.address))
+        // olcRTC endpoints are WebRTC room ids, not hosts — never resolve those.
+        val isOlcrtc = isOlcrtcProtocol(server)
+        val cfgServer = if (isOlcrtc) server else server.copy(address = resolveHostToIp(server.address))
         val isAwg = isAmneziaProtocol(cfgServer)
         val outTag = cfgServer.id
 
         val config = baseTunConfig(cfgServer)
         config.put("dns", buildDnsConfig(cfgServer, filesDir))
         config.put("outbounds", JSONArray().apply {
-            put(if (isAwg) buildAmneziaWgOutbound(cfgServer) else buildOutbound(cfgServer))
+            put(
+                when {
+                    isOlcrtc -> buildOlcrtcOutbound(cfgServer.id)
+                    isAwg -> buildAmneziaWgOutbound(cfgServer)
+                    else -> buildOutbound(cfgServer)
+                }
+            )
             put(JSONObject().apply { put("type", "direct"); put("tag", "direct") })
             put(JSONObject().apply { put("type", "block"); put("tag", "block") })
         })
-        config.put("route", buildRouteConfig(outTag, filesDir))
+        config.put("route", buildRouteConfig(outTag, filesDir, splitDomains, splitOnly, routingMode, bypassRussia, bypassChina, blockAds, dnsHijack = isOlcrtc))
         config.put("experimental", JSONObject().apply {
             put("clash_api", JSONObject().apply {
                 put("external_controller", "127.0.0.1:$CLASH_API_PORT")
@@ -75,12 +97,25 @@ class SingBoxConfigGenerator {
         }
     }
 
+    fun isOlcrtcProtocol(server: SubServer): Boolean =
+        server.protocol.uppercase().contains("OLCRTC")
+
+    /** Everything goes through the local olcRTC SOCKS5 tunnel (127.0.0.1:8788). */
+    private fun buildOlcrtcOutbound(tag: String): JSONObject = JSONObject().apply {
+        put("type", "socks")
+        put("tag", tag)
+        put("server", "127.0.0.1")
+        put("server_port", OLCRTC_SOCKS_PORT)
+    }
+
     private fun logConfig(): JSONObject = JSONObject().apply {
         put("level", if (BuildConfig.DEBUG) "info" else "warn")
         put("timestamp", true)
     }
 
-    private fun baseTunConfig(server: SubServer): JSONObject {
+    private fun baseTunConfig(server: SubServer, sniff: Boolean = false): JSONObject {
+        // sniff was removed from inbound fields in sing-box 1.13; it is now a route
+        // rule action ({"action":"sniff"}), emitted by buildRouteConfig when dnsHijack.
         return JSONObject().apply {
             put("log", logConfig())
             put("inbounds", JSONArray().apply {
@@ -92,6 +127,16 @@ class SingBoxConfigGenerator {
                     put("strict_route", false)
                     put("stack", "gvisor")
                     put("mtu", 1280)
+                })
+                // Local mixed proxy inside the tunnel: our own app traffic is
+                // disallowed from the TUN (addDisallowedApplication), so the only
+                // way it can measure servers "via proxy" (as Amnezia does) is to
+                // hop through this loopback inbound, which forwards over the tunnel.
+                put(JSONObject().apply {
+                    put("type", "mixed")
+                    put("tag", "mixed-in")
+                    put("listen", "127.0.0.1")
+                    put("listen_port", MIXED_PORT)
                 })
             })
         }
@@ -130,44 +175,107 @@ class SingBoxConfigGenerator {
         }
     }
 
-    private fun buildRouteConfig(outboundTag: String, filesDir: String): JSONObject {
-        val geoipPath = if (filesDir.isNotEmpty()) "$filesDir/geoip-ru.srs" else ""
+    private fun buildRouteConfig(outboundTag: String, filesDir: String, splitDomains: List<String> = emptyList(), splitOnly: Boolean = false, routingMode: String = "rule", bypassRussia: Boolean = true, bypassChina: Boolean = false, blockAds: Boolean = false, dnsHijack: Boolean = false): JSONObject {
+        val geoipRuPath = if (filesDir.isNotEmpty()) "$filesDir/geoip-ru.srs" else ""
+        val geoipCnPath = if (filesDir.isNotEmpty()) "$filesDir/geoip-cn.srs" else ""
+        val normalizedDomains = splitDomains
+            .map { it.trim().lowercase().removePrefix("https://").removePrefix("http://").removePrefix("*.") }
+            .filter { it.isNotBlank() }
+            .distinct()
+        // Routing modes: "global" = everything through the VPN (rules ignored),
+        // "direct" = everything direct, "rule" (default) = rules below apply.
+        val useRules = routingMode != "direct"
+        // Domain rules (split, RU/CN bypass, adblock) can only match a domain if the
+        // TUN packet is sniffed for TLS SNI / HTTP Host. Inbound `sniff` field was
+        // removed in sing-box 1.13; it is now a non-final route rule action emitted
+        // here — otherwise domain-based split tunneling would silently not work.
+        val needSniff = useRules && (normalizedDomains.isNotEmpty() || blockAds || bypassRussia || bypassChina || dnsHijack)
         return JSONObject().apply {
             put("rules", JSONArray().apply {
+                // sniff is a non-final rule action (inbound sniff was removed in
+                // sing-box 1.13): it must run first so the protocol/domain of every
+                // connection is detected before later rules route on it.
+                if (needSniff) {
+                    put(JSONObject().apply {
+                        put("action", "sniff")
+                    })
+                }
+                // Private/local networks always stay direct so the device can reach
+                // its router and LAN. Not a toggle — without it the VPN breaks LAN access.
                 put(JSONObject().apply {
                     put("ip_is_private", true)
                     put("outbound", "direct")
                 })
-                put(JSONObject().apply {
-                    put("port", JSONArray().apply { put(443) })
-                    put("network", "udp")
-                    put("outbound", "block")
-                })
-                put(JSONObject().apply {
-                    put("domain_suffix", JSONArray().apply { RU_DOMAIN_SUFFIXES.forEach { put(it) } })
-                    put("outbound", "direct")
-                })
-                if (geoipPath.isNotEmpty()) {
+                // olcRTC carries no UDP, so app DNS (UDP:53) must be intercepted and
+                // resolved by sing-box over TCP (remote-dns, https via the SOCKS outbound).
+                if (dnsHijack) {
                     put(JSONObject().apply {
-                        put("rule_set", JSONArray().apply { put("geoip-ru") })
-                        put("outbound", "direct")
+                        put("protocol", "dns")
+                        put("action", "hijack-dns")
                     })
                 }
+                if (useRules) {
+                    if (normalizedDomains.isNotEmpty()) {
+                        put(JSONObject().apply {
+                            put("domain_suffix", JSONArray().apply { normalizedDomains.forEach { put(it) } })
+                            if (splitOnly) put("invert", true)
+                            put("outbound", "direct")
+                        })
+                    }
+                    if (blockAds) {
+                        put(JSONObject().apply {
+                            put("domain_suffix", JSONArray().apply { AD_DOMAIN_SUFFIXES.forEach { put(it) } })
+                            put("outbound", "block")
+                        })
+                    }
+                    // In "only these sites through the VPN" mode the built-in direct
+                    // rules would leak those sites outside the tunnel, so drop them.
+                    val inBypassMode = !splitOnly || normalizedDomains.isEmpty()
+                    if (inBypassMode) {
+                        if (bypassRussia) {
+                            put(JSONObject().apply {
+                                put("domain_suffix", JSONArray().apply { RU_DOMAIN_SUFFIXES.forEach { put(it) } })
+                                put("outbound", "direct")
+                            })
+                            if (geoipRuPath.isNotEmpty()) {
+                                put(JSONObject().apply {
+                                    put("rule_set", JSONArray().apply { put("geoip-ru") })
+                                    put("outbound", "direct")
+                                })
+                            }
+                        }
+                        if (bypassChina && geoipCnPath.isNotEmpty()) {
+                            put(JSONObject().apply {
+                                put("rule_set", JSONArray().apply { put("geoip-cn") })
+                                put("outbound", "direct")
+                            })
+                        }
+                    }
+                }
             })
-            put("final", outboundTag)
+            put("final", if (routingMode == "direct") "direct" else outboundTag)
             // VpnService fd mode: the launcher owns interface addressing and
             // routing, so we must not auto-detect/monitor netlink (which is banned
             // for app uids on Android and would make startup fatal).
             put("auto_detect_interface", false)
             put("default_domain_resolver", "remote-dns")
-            if (geoipPath.isNotEmpty()) {
-                put("rule_set", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("type", "local")
-                        put("tag", "geoip-ru")
-                        put("path", geoipPath)
-                    })
+            val ruleSets = JSONArray()
+            if (geoipRuPath.isNotEmpty()) {
+                ruleSets.put(JSONObject().apply {
+                    put("type", "local")
+                    put("tag", "geoip-ru")
+                    put("path", geoipRuPath)
                 })
+            }
+            if (useRules && bypassChina && geoipCnPath.isNotEmpty()) {
+                ruleSets.put(JSONObject().apply {
+                    put("type", "local")
+                    put("tag", "geoip-cn")
+                    put("path", geoipCnPath)
+                })
+            }
+            if (ruleSets.length() > 0) {
+                put("rule_set", ruleSets)
             }
         }
     }
