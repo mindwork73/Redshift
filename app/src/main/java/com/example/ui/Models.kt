@@ -110,8 +110,8 @@ object RedShiftState {
     var bypassLocal by mutableStateOf(true)
     var bypassLan by mutableStateOf(true)
     var bypassChina by mutableStateOf(false)
-    var bypassRussia by mutableStateOf(false)
-    var blockAds by mutableStateOf(true)
+    var bypassRussia by mutableStateOf(true)
+    var blockAds by mutableStateOf(false)
 
     var splitTunnelEnabled by mutableStateOf(false)
     var splitTunnelByApps by mutableStateOf(false)
@@ -153,7 +153,19 @@ object RedShiftState {
     private var trafficMonitor: com.example.service.TrafficMonitor? = null
     private var lastStreamUpdate = 0L
     private var lastConfig = ""
+
+    /**
+     * Monotonic generation counter for VPN connect/disconnect sessions. Every
+     * toggle bumps it; the in-flight connect coroutine checks it at each
+     * suspension point and aborts if it no longer matches. This prevents the
+     * race where disconnect's stop() runs while the connect coroutine is still
+     * polling for a TUN fd and then calls startWithTunFd() on a dead session
+     * (native start/stop on different threads -> SEGV, app dies without trace).
+     */
+    private var vpnGeneration = 0L
+    private var connectJob: Job? = null
     var sortByPing by mutableStateOf(false)
+    var autoSelectBestServer by mutableStateOf(false)
 
     private var settingsStore: SettingsStore? = null
     private var appContext: Context? = null
@@ -429,6 +441,24 @@ private fun loadCachedServers() {
                 splitApps = raw.split('\n').map { it.trim() }.filter { it.isNotBlank() }
             }
         }
+        scope.launch {
+            store.routingMode.collect { raw ->
+                routingMode = when (raw.lowercase()) {
+                    "global" -> RoutingMode.GLOBAL
+                    "direct" -> RoutingMode.DIRECT
+                    else -> RoutingMode.RULE
+                }
+            }
+        }
+        scope.launch {
+            store.blockAds.collect { blockAds = it }
+        }
+        scope.launch {
+            store.autoSelectBest.collect { autoSelectBestServer = it }
+        }
+        scope.launch {
+            store.sortByPing.collect { sortByPing = it }
+        }
     }
 
     fun resetDefaultData() {
@@ -465,7 +495,30 @@ private fun loadCachedServers() {
                     if (i >= 0) servers[i] = servers[i].copy(latency = ms)
                 }
             }
+            if (autoSelectBestServer && connectionState != ConnectionState.CONNECTED) {
+                val best = servers
+                    .filter { it.latency > 0 }
+                    .minByOrNull { it.latency }
+                if (best != null) {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        // Do not steal an in-progress user selection while connecting.
+                        if (connectionState != ConnectionState.CONNECTING) {
+                            selectServer(best.id)
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    fun setSortByPingEnabled(enabled: Boolean) {
+        sortByPing = enabled
+        scope.launch { settingsStore?.setSortByPing(enabled) }
+    }
+
+    fun setAutoSelectBest(enabled: Boolean) {
+        autoSelectBestServer = enabled
+        scope.launch { settingsStore?.setAutoSelectBest(enabled) }
     }
 
     fun addSplitDomain(domain: String) {
@@ -502,6 +555,26 @@ private fun loadCachedServers() {
     fun setSplitOnly(only: Boolean) {
         splitTunnelOnly = only
         scope.launch { settingsStore?.setSplitTunnelOnly(only) }
+    }
+
+    fun applyRoutingMode(mode: RoutingMode) {
+        routingMode = mode
+        scope.launch { settingsStore?.setRoutingMode(mode.name.lowercase()) }
+    }
+
+    fun applyBypassLocal(enabled: Boolean) {
+        bypassLocal = enabled
+        scope.launch { settingsStore?.setBypassLocal(enabled) }
+    }
+
+    fun applyBypassLan(enabled: Boolean) {
+        bypassLan = enabled
+        scope.launch { settingsStore?.setBypassLan(enabled) }
+    }
+
+    fun applyBlockAds(enabled: Boolean) {
+        blockAds = enabled
+        scope.launch { settingsStore?.setBlockAds(enabled) }
     }
 
     fun addServersFromSubResult(subServers: List<SubServer>, subUrl: String = "") {
@@ -687,9 +760,16 @@ private fun loadCachedServers() {
                 connectionState = ConnectionState.CONNECTING
                 Log.e("RedShiftVPN", "Starting VPN connect sequence")
 
-                scope.launch {
+                // Mark this connect attempt with the current generation. Any later
+                // toggle (disconnect) bumps vpnGeneration, and every suspension
+                // point below re-checks it so a stale connect coroutine bails out
+                // instead of racing the native stop().
+                val gen = vpnGeneration
+                connectJob?.cancel()
+                connectJob = scope.launch {
                     try {
                         debugLog("coroutine started, state=$connectionState")
+                        if (gen != vpnGeneration) return@launch
                         val server = getSelectedServer()
                         debugLog("server=${server?.name}, proto=${server?.protocol}")
 
@@ -713,29 +793,66 @@ private fun loadCachedServers() {
                         val filesDir = ctx?.filesDir?.absolutePath ?: ""
                         try {
                             if (ctx != null && filesDir.isNotEmpty()) {
-                                val srsFile = java.io.File(filesDir, "geoip-ru.srs")
-                                if (!srsFile.exists()) {
-                                    ctx.assets.open("geoip-ru.srs").use { input ->
-                                        srsFile.outputStream().use { output -> input.copyTo(output) }
+                                for (assetName in arrayOf("geoip-ru.srs", "geoip-cn.srs")) {
+                                    val srsFile = java.io.File(filesDir, assetName)
+                                    if (!srsFile.exists()) {
+                                        ctx.assets.open(assetName).use { input ->
+                                            srsFile.outputStream().use { output -> input.copyTo(output) }
+                                        }
                                     }
                                 }
                             }
                         } catch (_: Exception) {}
                         debugLog("generating config...")
-                        val config = withContext(Dispatchers.IO) { SingBoxConfigGenerator().generateConfig(sub, SingBoxManager.SOCKS_PORT, filesDir, splitDomains, splitTunnelOnly && splitTunnelEnabled) }
+                        // Domain split only makes sense when the user selected the
+                        // "Domains" mode and the toggle is on. In "Apps" mode the TUN
+                        // allow/deny (EXTRA_SPLIT_APPS) handles it, and a stale domain
+                        // list from a previous session must not leak into routing.
+                        val domainSplitEnabled = splitTunnelEnabled && !splitTunnelByApps
+                        val config = withContext(Dispatchers.IO) {
+                            SingBoxConfigGenerator().generateConfig(
+                                sub,
+                                SingBoxManager.SOCKS_PORT,
+                                filesDir,
+                                if (domainSplitEnabled) splitDomains else emptyList(),
+                                domainSplitEnabled && splitTunnelOnly,
+                                routingMode.name.lowercase(),
+                                // RU-direct is an always-on behaviour (original app), CN is off.
+                                bypassRussia = true,
+                                bypassChina = false,
+                                blockAds
+                            )
+                        }
                         debugLog("config length=${config.length}")
                         lastConfig = config
+
+                        if (gen != vpnGeneration || !isActive) {
+                            debugLog("connect aborted after config gen (generation changed)")
+                            return@launch
+                        }
 
                         val isAwg = SingBoxConfigGenerator().isAmneziaProtocol(sub)
 
                         debugLog("TUN fd passing for all protocols")
-                        val intent1 = Intent(appContext, RedShiftVpnService::class.java).apply {
-                            action = RedShiftVpnService.ACTION_CONNECT_AWG
-                            if (splitTunnelEnabled && splitApps.isNotEmpty()) {
-                                putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS, splitApps.toTypedArray())
-                                putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS_ONLY, splitTunnelOnly)
+val isOlcrtcServer = server.protocol.uppercase().contains("OLCRTC")
+                            val intent1 = Intent(appContext, RedShiftVpnService::class.java).apply {
+                                action = RedShiftVpnService.ACTION_CONNECT_AWG
+                                // App-based split only when the user actually picked the
+                                // "Apps" mode: otherwise a stale app list from a previous
+                                // session would filter the TUN behind the user's back.
+                                if (splitTunnelEnabled && splitTunnelByApps && splitApps.isNotEmpty()) {
+                                    putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS, splitApps.toTypedArray())
+                                    putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS_ONLY, splitTunnelOnly)
+                                }
+                                if (isOlcrtcServer) {
+                                    putExtra(RedShiftVpnService.EXTRA_OLCRTC_URI, server.subExtra.ifBlank { server.address })
+                                }
+                                val srvName = server.name
+                                if (srvName.isNotBlank()) {
+                                    putExtra(RedShiftVpnService.EXTRA_SERVER_LABEL, srvName)
+                                }
+                                putExtra(RedShiftVpnService.EXTRA_NOTIFICATIONS, vpnNotification)
                             }
-                        }
                         appContext?.startService(intent1)
                         var tunFd = -1
                         // Race fix: on some OEMs (vivo) VpnService.Builder.establish() takes
@@ -744,6 +861,7 @@ private fun loadCachedServers() {
                         tunFd = withContext(Dispatchers.IO) {
                             var fd = -1
                             for (i in 1..160) {
+                                if (!isActive || gen != vpnGeneration) break
                                 Thread.sleep(250)
                                 fd = RedShiftVpnService.getLastTunFdRaw()
                                 if (fd > 0) break
@@ -751,6 +869,10 @@ private fun loadCachedServers() {
                             fd
                         }
                         debugLog("TUN fd=$tunFd after wait")
+                        if (gen != vpnGeneration || !isActive) {
+                            debugLog("connect aborted after TUN wait (generation changed)")
+                            return@launch
+                        }
                         if (tunFd > 0) {
                             val started = withContext(Dispatchers.IO) { singBoxManager?.startWithTunFd(config, tunFd) == true }
                             debugLog("sing-box started with tun fd=$started")
@@ -788,6 +910,12 @@ private fun loadCachedServers() {
                 }
             }
             ConnectionState.CONNECTED, ConnectionState.CONNECTING -> {
+                // Bump generation first: any in-flight connect coroutine sees the
+                // new value at its next suspension point and aborts, so native
+                // start()/stop() can never run concurrently.
+                vpnGeneration++
+                connectJob?.cancel()
+                connectJob = null
                 connectionState = ConnectionState.DISCONNECTED
                 lastConfig = ""
                 val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
@@ -870,7 +998,7 @@ private fun loadCachedServers() {
                 importError = result.error
                 debugLog("import FAILED: ${result.error}")
             } else if (result.servers.isNotEmpty()) {
-                val isSingleCustomLink = url.startsWith("vpn://") || url.startsWith("tt://")
+                val isSingleCustomLink = url.startsWith("vpn://") || url.startsWith("tt://") || OlcrtcUri.isOlcrtcUri(url)
                 val dbgFirst = result.servers.first()
                 debugLog("import OK: n=${result.servers.size} first=${dbgFirst.protocol} ${dbgFirst.address}:${dbgFirst.port} psk=${dbgFirst.presharedKey.isNotEmpty()} priv=${dbgFirst.privateKey.isNotEmpty()} srvPub=${dbgFirst.serverPublicKey.isNotEmpty()} awgParams=${if (dbgFirst.awgParams.isBlank()) "-" else "yes"}")
 

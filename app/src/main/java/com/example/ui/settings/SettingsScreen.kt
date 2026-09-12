@@ -19,13 +19,13 @@ import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NetworkPing
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -155,31 +155,10 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 showDivider = true
             )
             ToggleRow(
-                title = t("allow_lan"),
-                checked = RedShiftState.allowLan,
-                onCheckedChange = { RedShiftState.allowLan = it },
-                leadingIcon = Icons.Filled.Wifi,
-                showDivider = true
-            )
-            ToggleRow(
-                title = t("ipv6_support"),
-                checked = RedShiftState.ipv6Support,
-                onCheckedChange = { RedShiftState.ipv6Support = it },
-                leadingIcon = Icons.Filled.Public,
-                showDivider = true
-            )
-            ToggleRow(
                 title = t("notifications"),
                 checked = RedShiftState.vpnNotification,
                 onCheckedChange = { RedShiftState.vpnNotification = it },
-                leadingIcon = Icons.Filled.Notifications,
-                showDivider = true
-            )
-            ToggleRow(
-                title = t("kill_switch"),
-                checked = RedShiftState.killSwitch,
-                onCheckedChange = { RedShiftState.killSwitch = it },
-                leadingIcon = Icons.Filled.Lock
+                leadingIcon = Icons.Filled.Notifications
             )
         }
 
@@ -193,15 +172,15 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
             contentPadding = PaddingValues(horizontal = RedSpace.M, vertical = RedSpace.S)
         ) {
             Text(
-                text = t("routing_mode"),
+                text = t("routing_hint"),
                 style = RedType.Caption,
                 color = VpnColors.TextTertiary
             )
-            Spacer(Modifier.height(RedSpace.Xs))
+            Spacer(Modifier.height(RedSpace.S))
             SegmentedControl(
                 options = listOf(RoutingMode.GLOBAL, RoutingMode.RULE, RoutingMode.DIRECT),
                 selected = RedShiftState.routingMode,
-                onSelect = { RedShiftState.routingMode = it },
+                onSelect = { RedShiftState.applyRoutingMode(it) },
                 label = { mode ->
                     when (mode) {
                         RoutingMode.GLOBAL -> t("routing_global")
@@ -211,35 +190,30 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 }
             )
             Spacer(Modifier.height(RedSpace.S))
-            ToggleRow(
-                title = t("bypass_local"),
-                checked = RedShiftState.bypassLocal,
-                onCheckedChange = { RedShiftState.bypassLocal = it },
-                showDivider = true
+            Text(
+                text = when (RedShiftState.routingMode) {
+                    RoutingMode.GLOBAL -> t("routing_global_desc")
+                    RoutingMode.RULE -> t("routing_rule_desc")
+                    RoutingMode.DIRECT -> t("routing_direct_desc")
+                },
+                style = RedType.Caption,
+                color = VpnColors.TextSecondary
             )
-            ToggleRow(
-                title = t("bypass_lan"),
-                checked = RedShiftState.bypassLan,
-                onCheckedChange = { RedShiftState.bypassLan = it },
-                showDivider = true
-            )
-            ToggleRow(
-                title = t("bypass_china"),
-                checked = RedShiftState.bypassChina,
-                onCheckedChange = { RedShiftState.bypassChina = it },
-                showDivider = true
-            )
-            ToggleRow(
-                title = t("bypass_russia"),
-                checked = RedShiftState.bypassRussia,
-                onCheckedChange = { RedShiftState.bypassRussia = it },
-                showDivider = true
-            )
+            Spacer(Modifier.height(RedSpace.S))
             ToggleRow(
                 title = t("block_ads"),
+                subtitle = t("block_ads_desc"),
                 checked = RedShiftState.blockAds,
-                onCheckedChange = { RedShiftState.blockAds = it },
+                onCheckedChange = { RedShiftState.applyBlockAds(it) },
                 leadingIcon = Icons.Filled.Shield
+            )
+            ToggleRow(
+                title = t("auto_select_best"),
+                subtitle = t("auto_select_best_desc"),
+                checked = RedShiftState.autoSelectBestServer,
+                onCheckedChange = { RedShiftState.setAutoSelectBest(it) },
+                leadingIcon = Icons.Filled.NetworkPing,
+                showDivider = false
             )
         }
 

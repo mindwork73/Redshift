@@ -21,7 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.NetworkPing
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -89,19 +90,19 @@ fun ServersScreen() {
             p.contains("AMNEZIA") -> 0
             p.contains("HYSTERIA") -> 1
             p.contains("TROJAN") || p.contains("SHADOWSOCKS") || p == "SS" -> 2
-            else -> 3
+            p.contains("OLCRTC") -> 3
+            else -> 4
         }
     }
 
     val ordered = regularServers.sortedWith(
         compareBy<Server> { protocolGroup(it) }
-            .thenByDescending { it.id == selectedId }
             .thenBy { if (sortByPing && it.latency > 0) it.latency else Int.MAX_VALUE }
             .thenBy { it.name }
     )
 
     val whitelistOrdered = whitelistedServers.sortedWith(
-        compareByDescending<Server> { it.id == selectedId }
+        compareBy<Server> { isWhitelistServer(it) }
             .thenBy { if (sortByPing && it.latency > 0) it.latency else Int.MAX_VALUE }
             .thenBy { it.name }
     )
@@ -111,7 +112,13 @@ fun ServersScreen() {
             title = t("nav_servers"),
             actions = {
                 GlassIconButton(
-                    icon = Icons.Filled.Refresh,
+                    icon = Icons.Filled.Sort,
+                    contentDescription = t("cd_sort_by_ping"),
+                    onClick = { RedShiftState.setSortByPingEnabled(!RedShiftState.sortByPing) },
+                    tint = if (sortByPing) VpnColors.Accent else VpnColors.TextPrimary
+                )
+                GlassIconButton(
+                    icon = Icons.Filled.NetworkPing,
                     contentDescription = t("cd_ping_all"),
                     onClick = { RedShiftState.pingAllServers() }
                 )

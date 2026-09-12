@@ -113,6 +113,26 @@ object UiText {
         "bypass_china" to mapOf("en" to "China — direct", "ru" to "Китай — напрямую"),
         "bypass_russia" to mapOf("en" to "Russia — direct", "ru" to "Россия — напрямую"),
         "block_ads" to mapOf("en" to "Block ads", "ru" to "Блокировать рекламу"),
+        "routing_hint" to mapOf(
+            "en" to "Local networks always go direct so the router and LAN stay reachable. The rule below applies in \"Rules\" mode.",
+            "ru" to "Локальная сеть всегда идёт напрямую — роутер и LAN остаются доступны. Правило ниже работает только в режиме «Правила»."
+        ),
+        "routing_global_desc" to mapOf(
+            "en" to "All traffic goes through the VPN.",
+            "ru" to "Весь трафик идёт через VPN."
+        ),
+        "routing_rule_desc" to mapOf(
+            "en" to "Traffic is processed by the rules below, then everything else goes through the VPN.",
+            "ru" to "Трафик обрабатывается по правилам ниже, всё остальное идёт через VPN."
+        ),
+        "routing_direct_desc" to mapOf(
+            "en" to "Everything goes direct, without the VPN.",
+            "ru" to "Весь трафик идёт напрямую, без VPN."
+        ),
+        "block_ads_desc" to mapOf(
+            "en" to "Blocks known ad and tracker domains.",
+            "ru" to "Блокирует известные рекламные и трекерные домены."
+        ),
         "section_split_tunnel" to mapOf("en" to "Split tunneling", "ru" to "Раздельное туннелирование"),
         "split_tunnel" to mapOf("en" to "Split tunneling", "ru" to "Раздельное туннелирование"),
         "split_tunnel_desc" to mapOf(
@@ -164,7 +184,13 @@ object UiText {
         "logout_confirm" to mapOf("en" to "Log out of RedShift?", "ru" to "Выйти из RedShift?"),
         "support_bot" to mapOf("en" to "Support bot", "ru" to "Бот поддержки"),
         "no_limit" to mapOf("en" to "No limit", "ru" to "Без лимита"),
-        "device_count" to mapOf("en" to "%1\$d of %2\$d", "ru" to "%1\$d из %2\$d")
+        "device_count" to mapOf("en" to "%1\$d of %2\$d", "ru" to "%1\$d из %2\$d"),
+        "auto_select_best" to mapOf("en" to "Auto-select fastest", "ru" to "Автовыбор быстрого"),
+        "auto_select_best_desc" to mapOf(
+            "en" to "After measuring, pick the server with the lowest ping",
+            "ru" to "После замера пинга выбрать сервер с минимальной задержкой"
+        ),
+        "cd_sort_by_ping" to mapOf("en" to "Sort by latency", "ru" to "Сортировка по пингу")
     )
 
     /** Keys known to this dictionary — used by the debug self-check. */
