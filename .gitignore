@@ -2,6 +2,7 @@
 .env
 local.properties
 debug.keystore
+*.jks
 
 # Android / Gradle
 *.iml
