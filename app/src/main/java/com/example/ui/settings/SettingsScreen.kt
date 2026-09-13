@@ -372,6 +372,21 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 showDivider = true
             )
             ListItem(
+                title = t("check_updates"),
+                subtitle = when {
+                    RedShiftState.isCheckingUpdate -> t("checking_updates")
+                    RedShiftState.updateCheckError == "up_to_date" -> t("up_to_date")
+                    else -> ""
+                },
+                leadingIcon = Icons.Filled.Refresh,
+                showDivider = true,
+                onClick = {
+                    if (!RedShiftState.isCheckingUpdate) {
+                        RedShiftState.checkForUpdates()
+                    }
+                }
+            )
+            ListItem(
                 title = t("local_port"),
                 trailingText = RedShiftState.localPort.toString(),
                 leadingIcon = Icons.Filled.Public,

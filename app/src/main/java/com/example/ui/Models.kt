@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.example.BuildConfig
 import com.example.service.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -119,6 +120,10 @@ object RedShiftState {
     var splitDomains by mutableStateOf<List<String>>(emptyList())
     var splitApps by mutableStateOf<List<String>>(emptyList())
 
+    var availableUpdate by mutableStateOf<com.example.service.UpdateChecker.UpdateInfo?>(null)
+    var isCheckingUpdate by mutableStateOf(false)
+    var updateCheckError by mutableStateOf<String?>(null)
+
     var isOnboarded by mutableStateOf(false)
 
     var telegramToken by mutableStateOf("")
@@ -199,6 +204,40 @@ object RedShiftState {
                 importSubscription(savedUrl)
             }
         }
+        scope.launch {
+            kotlinx.coroutines.delay(3500)
+            checkForUpdates()
+        }
+    }
+
+    /**
+     * Checks GitHub Releases for a newer app version and exposes the result via
+     * [availableUpdate]. The UI surfaces a dialog whenever it is non-null.
+     */
+    fun checkForUpdates() {
+        val ctx = appContext ?: return
+        if (isCheckingUpdate) return
+        isCheckingUpdate = true
+        updateCheckError = null
+        scope.launch {
+            val info = withContext(Dispatchers.IO) {
+                com.example.service.UpdateChecker.checkLatest()
+            }
+            isCheckingUpdate = false
+            if (info != null &&
+                com.example.service.UpdateChecker.isNewerVersion(info.versionName, BuildConfig.VERSION_NAME)
+            ) {
+                availableUpdate = info
+            } else {
+                updateCheckError = "up_to_date"
+                delay(4000)
+                if (updateCheckError == "up_to_date") updateCheckError = null
+            }
+        }
+    }
+
+    fun clearUpdateDialog() {
+        availableUpdate = null
     }
 
     private fun requestBatteryOptimization() {
