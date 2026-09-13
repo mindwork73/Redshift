@@ -141,8 +141,16 @@ object UiText {
         ),
         "split_by_apps" to mapOf("en" to "Apps", "ru" to "Приложения"),
         "split_by_domains" to mapOf("en" to "Sites", "ru" to "Сайты"),
-        "split_only_selected" to mapOf("en" to "VPN for selected only", "ru" to "VPN только для выбранных"),
-        "split_exclude_selected" to mapOf("en" to "VPN for everything else", "ru" to "VPN для всего остального"),
+        "split_only_selected" to mapOf("en" to "Selected go via VPN", "ru" to "Выбранные — через VPN"),
+        "split_exclude_selected" to mapOf("en" to "Everything else via VPN", "ru" to "Всё остальное — через VPN"),
+        "split_only_selected_desc" to mapOf(
+            "en" to "The selected apps/sites use the VPN, everything else connects directly.",
+            "ru" to "Выбранные приложения и сайты идут через VPN, всё остальное — напрямую."
+        ),
+        "split_exclude_selected_desc" to mapOf(
+            "en" to "The selected apps/sites connect directly, everything else uses the VPN.",
+            "ru" to "Выбранные приложения и сайты идут напрямую, всё остальное — через VPN."
+        ),
         "split_selected_count" to mapOf("en" to "Selected: %1\$d", "ru" to "Выбрано: %1\$d"),
         "split_apps_title" to mapOf("en" to "Select apps", "ru" to "Выберите приложения"),
         "split_domains_title" to mapOf("en" to "Selected sites", "ru" to "Выбранные сайты"),

@@ -260,6 +260,11 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                     } else {
                         t("split_exclude_selected")
                     },
+                    subtitle = if (RedShiftState.splitTunnelOnly) {
+                        t("split_only_selected_desc")
+                    } else {
+                        t("split_exclude_selected_desc")
+                    },
                     checked = RedShiftState.splitTunnelOnly,
                     onCheckedChange = { RedShiftState.setSplitOnly(it) },
                     checkedTrackColor = VpnColors.Success

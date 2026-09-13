@@ -461,10 +461,16 @@ class RedShiftVpnService : VpnService() {
             builder.setMetered(false)
         }
 
-        try {
-            builder.addDisallowedApplication(packageName)
-        } catch (e: Exception) {
-            Log.e("RedShiftVPN", "addDisallowedApplication failed: ${e.message}")
+        // "Only" mode uses addAllowedApplication — Android forbids mixing it with
+        // addDisallowedApplication (establish() throws IllegalArgumentException).
+        // When only a whitelist is set, our own package is naturally not on it and
+        // its sockets stay on the real network, so no explicit exclusion is needed.
+        if (!splitAppsOnly) {
+            try {
+                builder.addDisallowedApplication(packageName)
+            } catch (e: Exception) {
+                Log.e("RedShiftVPN", "addDisallowedApplication failed: ${e.message}")
+            }
         }
 
         applySplitTunnel(builder)
