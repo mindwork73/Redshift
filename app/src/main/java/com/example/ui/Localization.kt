@@ -776,6 +776,36 @@ object Trans {
             "ar" to "التحقق من التحديثات", "tr" to "Güncellemeleri Denetle", "vi" to "Kiểm tra cập nhật", "id" to "Periksa Pembaruan", "hi" to "अपडेट की जाँच करें",
             "pt-BR" to "Verificar Atualizações", "it" to "Controlla aggiornamenti", "uk" to "Перевірити оновлення", "kk" to "Жаңартуларды тексеру", "he" to "בדוק עדכונים"
         ),
+        "checking_updates" to mapOf(
+            "en" to "Checking…", "ru" to "Проверка…", "zh-CN" to "检查中…", "zh-TW" to "檢查中…", "fa" to "در حال بررسی…",
+            "es" to "Comprobando…", "fr" to "Vérification…", "de" to "Prüfe…", "ja" to "確認中…", "ko" to "확인 중…",
+            "ar" to "جارٍ التحقق…", "tr" to "Denetleniyor…", "vi" to "Đang kiểm tra…", "id" to "Memeriksa…", "hi" to "जाँच हो रही है…",
+            "pt-BR" to "Verificando…", "it" to "Controllo…", "uk" to "Перевірка…", "kk" to "Тексеру…", "he" to "בודק…"
+        ),
+        "update_available" to mapOf(
+            "en" to "Update Available", "ru" to "Доступно обновление", "zh-CN" to "有可用更新", "zh-TW" to "有可用更新", "fa" to "بهروزرسانی موجود است",
+            "es" to "Actualización disponible", "fr" to "Mise à jour disponible", "de" to "Update verfügbar", "ja" to "更新があります", "ko" to "업데이트 사용 가능",
+            "ar" to "يتوفر تحديث", "tr" to "Güncelleme Mevcut", "vi" to "Có bản cập nhật", "id" to "Pembaruan Tersedia", "hi" to "अपडेट उपलब्ध है",
+            "pt-BR" to "Atualização Disponível", "it" to "Aggiornamento disponibile", "uk" to "Доступне оновлення", "kk" to "Жаңарту бар", "he" to "עדכון זמין"
+        ),
+        "update_now" to mapOf(
+            "en" to "Update", "ru" to "Обновить", "zh-CN" to "更新", "zh-TW" to "更新", "fa" to "بهروزرسانی",
+            "es" to "Actualizar", "fr" to "Mettre à jour", "de" to "Aktualisieren", "ja" to "更新", "ko" to "업데이트",
+            "ar" to "تحديث", "tr" to "Güncelle", "vi" to "Cập nhật", "id" to "Perbarui", "hi" to "अपडेट करें",
+            "pt-BR" to "Atualizar", "it" to "Aggiorna", "uk" to "Оновити", "kk" to "Жаңарту", "he" to "עדכן"
+        ),
+        "update_downloading" to mapOf(
+            "en" to "Downloading…", "ru" to "Загрузка…", "zh-CN" to "下载中…", "zh-TW" to "下載中…", "fa" to "در حال دانلود…",
+            "es" to "Descargando…", "fr" to "Téléchargement…", "de" to "Lädt…", "ja" to "ダウンロード中…", "ko" to "다운로드 중…",
+            "ar" to "جارٍ التنزيل…", "tr" to "İndiriliyor…", "vi" to "Đang tải…", "id" to "Mengunduh…", "hi" to "डाउनलोड हो रहा है…",
+            "pt-BR" to "Baixando…", "it" to "Download…", "uk" to "Завантаження…", "kk" to "Жүктелуде…", "he" to "מוריד…"
+        ),
+        "up_to_date" to mapOf(
+            "en" to "You're up to date", "ru" to "У вас последняя версия", "zh-CN" to "已是最新版本", "zh-TW" to "已是最新版本", "fa" to "نسخهی شما بهروز است",
+            "es" to "Estás al día", "fr" to "Vous êtes à jour", "de" to "Du bist auf dem neuesten Stand", "ja" to "最新版です", "ko" to "최신 버전입니다",
+            "ar" to "أنت على أحدث إصدار", "tr" to "Sürümün güncel", "vi" to "Bạn đang dùng bản mới nhất", "id" to "Versi Anda sudah terbaru", "hi" to "आप नवीनतम संस्करण पर हैं",
+            "pt-BR" to "Você está atualizado", "it" to "Sei aggiornato", "uk" to "У вас остання версія", "kk" to "Сізде соңғы нұсқа", "he" to "הגרסה שלך מעודכנת"
+        ),
         "onboard_1_title" to mapOf(
             "en" to "See the Truth", "ru" to "Увидь правду", "zh-CN" to "看清真相", "zh-TW" to "看清真相", "fa" to "حقیقت را ببینید",
             "es" to "Mira la verdad", "fr" to "Voyez la vérité", "de" to "Sieh die Wahrheit", "ja" to "真実を見よ", "ko" to "진실을 보라",

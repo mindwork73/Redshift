@@ -11,6 +11,12 @@ class SingBoxManager(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var configPath: String = ""
 
+    // All native start/stop transitions go through this monitor so that a racing
+    // disconnect (which calls stop()) can never overlap with an in-progress
+    // startWithTunFd(). On some devices concurrent native start/stop deadlocked
+    // or crashed the process with no Java stack (probable native SEGV).
+    private val nativeLock = Any()
+
     companion object {
         const val SOCKS_PORT = 10808
         const val MIXED_PORT = 10809
@@ -61,14 +67,14 @@ class SingBoxManager(private val context: Context) {
         loaded
     }
 
-    fun startWithTunFd(configJson: String, tunFd: Int): Boolean {
+    fun startWithTunFd(configJson: String, tunFd: Int): Boolean = synchronized(nativeLock) {
         stop()
 
         prepareFiles(configJson)
         val cfg = File(getConfigPath())
         if (!cfg.exists() || cfg.length() == 0L) {
             debugLog("config not written")
-            return false
+            return@synchronized false
         }
 
         debugLog("calling native start(tunFd=$tunFd), config=${getConfigPath()}")
@@ -76,7 +82,7 @@ class SingBoxManager(private val context: Context) {
         if (rc != 0) {
             val err = readErrFile()
             debugLog("native start failed rc=$rc: $err")
-            return false
+            return@synchronized false
         }
 
         // Give the core a moment to come up, then confirm.
@@ -89,13 +95,15 @@ class SingBoxManager(private val context: Context) {
         }
         debugLog("sing-box alive=$alive (tun fd=$tunFd) rc=$rc")
         startMonitor()
-        return alive
+        alive
     }
 
     fun stop() {
-        monitorJob?.cancel()
-        monitorJob = null
-        SingBoxNative.stop()
+        synchronized(nativeLock) {
+            monitorJob?.cancel()
+            monitorJob = null
+            SingBoxNative.stop()
+        }
     }
 
     fun isRunning(): Boolean = SingBoxNative.alive() == 1

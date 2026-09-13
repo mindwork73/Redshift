@@ -2,91 +2,91 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ─── Brand / Accent ───
-val RedPrimary = Color(0xFF6E61FF)
-val RedGradientEnd = Color(0xFF8B12D4)
-val PurpleSecondary = Color(0xFF9A7BFF)
-val AmberWarning = Color(0xFFF6C05C)
-val WarningAmber = Color(0xFFF6C05C)
-val ErrorRed = Color(0xFFFF615C)
+/**
+ * Design tokens of the "Liquid Glass Dark" design system (REDESIGN.md §5.2).
+ *
+ * Every colour used by the UI is declared here once. Screens and components must not
+ * declare their own colours — they read these tokens (or the [VpnColors] grouping).
+ *
+ * The theme is dark by design: light values do not exist for this product.
+ */
 
-// ─── Screens (legacy compat) ───
-val CyberBackground = Color(0xFF030A15)
-val CyberBackgroundDeep = Color(0xFF020713)
-val CyberCard = Color(0xFF1F2938)
-val CyberElevated = Color(0xFF273241)
-val VpnSurfaceTertiary = Color(0xFF172538)
+// ─── Scene background ───
+val Background = Color(0xFF050507)
+val BackgroundGradientTop = Color(0xFF0D1117)
+val BackgroundGradientBottom = Color(0xFF050507)
+
+// ─── Glass surfaces ───
+val GlassFill = Color(0x12FFFFFF) // white, alpha 0.07
+val GlassFillStrong = Color(0x1CFFFFFF) // white, alpha 0.11
+val GlassBorder = Color(0x29FFFFFF) // white, alpha 0.16
+val GlassBorderTop = Color(0x47FFFFFF) // white, alpha 0.28
 
 // ─── Text ───
-val TextPrimary = Color(0xFFF4F6FA)
-val TextSecondary = Color(0xFFC0C8D4)
-val TextMuted = Color(0xFF7C8797)
-val TextDim = Color(0xFF566174)
+val TextPrimary = Color(0xFFFFFFFF)
+val TextSecondary = Color(0xFFA2A2AF)
+val TextTertiary = Color(0xFF6E6E78)
 
-// ─── Status ───
-val SuccessGreen = Color(0xFF00E83F)
-val SuccessGreenSoft = Color(0xFF48E966)
-val VpnDivider = Color(0xFF213044)
+// ─── Accent ("red pill") ───
+val Accent = Color(0xFFFF3B30)
+val AccentSoft = Color(0x24FF3B30) // alpha 0.14
+val AccentDark = Color(0xFFC42B22) // gradient partner of [Accent]
 
-// ─── Premium gradient (legacy) ───
-val PremiumBlue = Color(0xFF4B78FF)
-val PremiumPurple = Color(0xFF8B12D4)
-val PremiumViolet = Color(0xFF7338E6)
+// ─── Semantic status ───
+val Success = Color(0xFF30D158)
+val SuccessSoft = Color(0x2430D158) // alpha 0.14
+val Warning = Color(0xFFFFD60A)
+val WarningSoft = Color(0x24FFD60A) // alpha 0.14
+val Danger = Color(0xFFFF453A)
+val DangerSoft = Color(0x24FF453A) // alpha 0.14
 
-// ─── Power button / surfaces (legacy) ───
-val PowerButtonSurface = Color(0xFF303846)
-val GlowRed = Color(0x336E61FF)
-val GlowPurple = Color(0x228B12D4)
-val GlowGreen = Color(0x3300E83F)
+// ─── Chrome ───
+val NavBarFill = Color(0xB30A0A0C) // #0A0A0C, alpha 0.7
+val Divider = Color(0x14FFFFFF) // white, alpha 0.08
 
-// ─── Glass (legacy) ───
-val GlassCard = Color(0x992A3446)
-val GlassBorder = Color(0x22FFFFFF)
+/**
+ * Single grouping object for the tokens above (REDESIGN.md §5.2 asks for the tokens to be
+ * grouped in `VpnColors`). Prefer these members inside components/screens.
+ */
+object VpnColors {
+    val Background = com.example.ui.theme.Background
+    val BackgroundGradientTop = com.example.ui.theme.BackgroundGradientTop
+    val BackgroundGradientBottom = com.example.ui.theme.BackgroundGradientBottom
 
-// ═══════════════════════════════════════════════════════════
-// ═══  REDESIGN PALETTE — Dark Graphite + Neon Green  ═══
-// ═══════════════════════════════════════════════════════════
+    val GlassFill = com.example.ui.theme.GlassFill
+    val GlassFillStrong = com.example.ui.theme.GlassFillStrong
+    val GlassBorder = com.example.ui.theme.GlassBorder
+    val GlassBorderTop = com.example.ui.theme.GlassBorderTop
 
-// ─── Backgrounds ───
-val BackgroundGraphite = Color(0xFF0A0B0F)
-val BackgroundGraphiteMid = Color(0xFF0F1117)
-val BackgroundGraphiteDeep = Color(0xFF060709)
+    val TextPrimary = com.example.ui.theme.TextPrimary
+    val TextSecondary = com.example.ui.theme.TextSecondary
+    val TextTertiary = com.example.ui.theme.TextTertiary
 
-// ─── Surfaces (Glass) ───
-val SurfaceGlass = Color(0xCC131620)
-val SurfaceGlassLight = Color(0x99191D2A)
-val SurfaceInner = Color(0xFF1D212E)
-val SurfaceCardSolid = Color(0xFF1A1D29)
-val SurfaceElevated = Color(0xFF222636)
+    val Accent = com.example.ui.theme.Accent
+    val AccentSoft = com.example.ui.theme.AccentSoft
+    val AccentDark = com.example.ui.theme.AccentDark
 
-// ─── Borders ───
-val BorderGraphite = Color(0xFF2A2F40)
-val BorderGlass = Color(0x33FFFFFF)
-val BorderSubtle = Color(0x1AFFFFFF)
+    val Success = com.example.ui.theme.Success
+    val SuccessSoft = com.example.ui.theme.SuccessSoft
+    val Warning = com.example.ui.theme.Warning
+    val WarningSoft = com.example.ui.theme.WarningSoft
+    val Danger = com.example.ui.theme.Danger
+    val DangerSoft = com.example.ui.theme.DangerSoft
 
-// ─── Accent Neon Green ───
-val AccentNeonGreen = Color(0xFF00E676)
-val AccentGreenSoft = Color(0x4D00E676)
-val AccentGreenGlow = Color(0x3300E676)
-val AccentGreenBright = Color(0xFF39FF8F)
+    val NavBarFill = com.example.ui.theme.NavBarFill
+    val Divider = com.example.ui.theme.Divider
 
-// ─── Other Accents ───
-val AccentWarning = Color(0xFFFFB300)
-val AccentError = Color(0xFFFF3B30)
-val AccentBlue = Color(0xFF4A90E2)
+    /** Glass edge highlight — the thin glint that sits on the top edge of a card. */
+    val GlassGlint = Color(0x38FFFFFF) // white, alpha 0.22
+}
 
-// ─── Premium Gradient Colors ───
-val PremiumStart = Color(0xFF7B38F8)
-val PremiumEnd = Color(0xFF4A90E2)
-val PremiumCyan = Color(0xFF25B9FF)
-
-// ─── Planet Colors ───
-val PlanetOcean = Color(0xFF0A1628)
-val PlanetLand = Color(0xFF1B3A2A)
-val PlanetAtmosphere = Color(0x2200E676)
-val PlanetGlow = Color(0x4400E676)
-val PlanetHighlight = Color(0x1AFFFFFF)
-val SpaceDark = Color(0xFF030508)
-
-// ─── Text (redesign) ───
-val TextTertiary = Color(0xFF6B7280)
+/**
+ * Latency → colour mapping shared by every screen (REDESIGN.md §5.2).
+ * 0 means "not measured yet" and must render as "—", never as a number.
+ */
+fun pingColor(latencyMs: Int): Color = when {
+    latencyMs <= 0 -> VpnColors.TextTertiary
+    latencyMs < 100 -> VpnColors.Success
+    latencyMs <= 250 -> VpnColors.Warning
+    else -> VpnColors.Danger
+}
