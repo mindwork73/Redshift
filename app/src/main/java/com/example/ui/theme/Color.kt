@@ -44,6 +44,18 @@ val DangerSoft = Color(0x24FF453A) // alpha 0.14
 val NavBarFill = Color(0xB30A0A0C) // #0A0A0C, alpha 0.7
 val Divider = Color(0x14FFFFFF) // white, alpha 0.08
 
+// ─── Floating nav bar (design/floating-nav-bar) ───
+// The bar is a detached "pill" over the backdrop instead of a docked strip, so it reads
+// as a glass object: darker and less transparent than NavBarFill (content scrolls behind
+// it), hairline white edge, thin glint on the top edge and a soft drop shadow.
+val NavBarFloatingFill = Color(0xF2101013) // #101013, alpha 0.95
+val NavBarFloatingBorder = Color(0x1FFFFFFF) // white, alpha 0.12
+val NavBarFloatingShadow = Color(0x73000000) // black, alpha 0.45
+val NavBarItemActive = Color(0xFF30D158) // == Success, the "connected" green
+val NavBarItemActiveFill = Color(0x2E30D158) // alpha 0.18 — disc fill
+val NavBarItemActiveHalo = Color(0x2430D158) // alpha 0.14 — glow bleeding out of the disc
+val NavBarItemActiveEdge = Color(0x6630D158) // alpha 0.40 — disc rim
+
 /**
  * Single grouping object for the tokens above (REDESIGN.md §5.2 asks for the tokens to be
  * grouped in `VpnColors`). Prefer these members inside components/screens.
@@ -75,6 +87,15 @@ object VpnColors {
 
     val NavBarFill = com.example.ui.theme.NavBarFill
     val Divider = com.example.ui.theme.Divider
+
+    // Floating nav bar (design/floating-nav-bar).
+    val NavBarFloatingFill = com.example.ui.theme.NavBarFloatingFill
+    val NavBarFloatingBorder = com.example.ui.theme.NavBarFloatingBorder
+    val NavBarFloatingShadow = com.example.ui.theme.NavBarFloatingShadow
+    val NavBarItemActive = com.example.ui.theme.NavBarItemActive
+    val NavBarItemActiveFill = com.example.ui.theme.NavBarItemActiveFill
+    val NavBarItemActiveHalo = com.example.ui.theme.NavBarItemActiveHalo
+    val NavBarItemActiveEdge = com.example.ui.theme.NavBarItemActiveEdge
 
     /** Glass edge highlight — the thin glint that sits on the top edge of a card. */
     val GlassGlint = Color(0x38FFFFFF) // white, alpha 0.22
