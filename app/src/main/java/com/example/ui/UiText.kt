@@ -179,6 +179,10 @@ object UiText {
         "never" to mapOf("en" to "Never", "ru" to "Никогда"),
         "section_about" to mapOf("en" to "About", "ru" to "О приложении"),
         "version" to mapOf("en" to "Version", "ru" to "Версия"),
+        "share_log_hint" to mapOf(
+            "en" to "Tap to share the log",
+            "ru" to "Нажмите, чтобы отправить лог"
+        ),
         "local_port" to mapOf("en" to "Local port", "ru" to "Локальный порт"),
         "support" to mapOf("en" to "Support", "ru" to "Поддержка"),
 

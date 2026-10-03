@@ -365,11 +365,16 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = RedSpace.M, vertical = RedSpace.Xs)
         ) {
+            // Support tool: bundles the app's own debug log, sing-box err.txt and saved
+            // crash reports and opens the share sheet, so a device-only failure can be
+            // diagnosed without adb. Tapping the version row is the entry point.
             ListItem(
                 title = t("version"),
+                subtitle = t("share_log_hint"),
                 trailingText = BuildConfig.VERSION_NAME,
                 leadingIcon = Icons.Filled.Info,
-                showDivider = true
+                showDivider = true,
+                onClick = { com.example.service.DiagnosticExporter.share(screenContext) }
             )
             ListItem(
                 title = t("check_updates"),

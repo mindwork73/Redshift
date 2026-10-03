@@ -148,10 +148,12 @@ fun ServersScreen() {
                         isActive = server.id == selectedId,
                         showDivider = index != ordered.lastIndex,
                         onClick = {
+                            // Always means "tunnel me through this server": while a session
+                            // is live (or still connecting) the old one is torn down first,
+                            // otherwise the service keeps the olcRTC room / SOCKS port and
+                            // the new attempt fails behind the dying one.
                             RedShiftState.selectServer(server.id)
-                            if (RedShiftState.connectionState != ConnectionState.CONNECTED) {
-                                RedShiftState.toggleVpn()
-                            }
+                            RedShiftState.restartConnection()
                         },
                         onLongClick = {
                             if (server.isCustom) serverToDelete = server
@@ -176,9 +178,7 @@ fun ServersScreen() {
                             showDivider = index != whitelistOrdered.lastIndex,
                             onClick = {
                                 RedShiftState.selectServer(server.id)
-                                if (RedShiftState.connectionState != ConnectionState.CONNECTED) {
-                                    RedShiftState.toggleVpn()
-                                }
+                                RedShiftState.restartConnection()
                             },
                             onLongClick = {
                                 if (server.isCustom) serverToDelete = server

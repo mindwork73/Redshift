@@ -1,4 +1,4 @@
-﻿package com.example.ui
+package com.example.ui
 
 import android.content.Context
 import android.content.Intent
@@ -137,6 +137,12 @@ object RedShiftState {
     var loginError by mutableStateOf<String?>(null)
     var isLoadingUser by mutableStateOf(false)
 
+    /**
+     * Why the last connect attempt failed, as reported by the service (e.g. the olcRTC
+     * room never came up). Without it a failed connect silently reverted to DISCONNECTED.
+     */
+    var vpnError by mutableStateOf<String?>(null)
+
     var userInfo by mutableStateOf<UserInfo?>(null)
 
     var apiBaseUrl by mutableStateOf("https://api.redpillcloud.ru")
@@ -169,6 +175,13 @@ object RedShiftState {
      */
     private var vpnGeneration = 0L
     private var connectJob: Job? = null
+
+    /** Native teardown of the previous session; a server switch waits for it. */
+    private var teardownJob: Job? = null
+
+    /** True while [restartConnection] is between "stop the old" and "start the new". */
+    private var isSwitchingServer = false
+    private var switchToken = 0L
     var sortByPing by mutableStateOf(false)
     var autoSelectBestServer by mutableStateOf(false)
 
@@ -776,159 +789,233 @@ private fun loadCachedServers() {
             return
         }
         when (connectionState) {
-            ConnectionState.DISCONNECTED -> {
-                // First time the user triggers a connection the system must be asked
-                // to consent to this app using VpnService; without VpnService.prepare()
-                // Builder.establish() instantly returns null on most OEM builds.
-                val consent = VpnService.prepare(ctx)
-                if (consent != null) {
-                    try {
-                        val act = currentActivity
-                        if (act != null) {
-                            act.startActivityForResult(consent, VPN_CONSENT_REQUEST)
-                        } else {
-                            consent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            ctx.startActivity(consent)
-                        }
-                        Log.e("RedShiftVPN", "VPN consent requested")
-                    } catch (e: Exception) {
-                        Log.e("RedShiftVPN", "VPN consent activity failed: ${e.message}")
-                    }
-                    return
+            ConnectionState.DISCONNECTED -> startVpnInternal()
+            ConnectionState.CONNECTED, ConnectionState.CONNECTING -> disconnectVpnInternal()
+        }
+    }
+
+    /**
+     * Switches the selected server (or retries the current one) from any state.
+     *
+     * A plain [toggleVpn] cannot express this: while CONNECTING it would just disconnect,
+     * and while CONNECTED it would do nothing at all. Tapping a server row has to mean
+     * "give me a tunnel on this server", so the old attempt is torn down first and the new
+     * one starts only after that teardown finished — otherwise the service still holds the
+     * olcRTC room / SOCKS port and the fresh attempt fails on top of the dying one.
+     */
+    fun restartConnection() {
+        when (connectionState) {
+            ConnectionState.DISCONNECTED -> startVpnInternal()
+            ConnectionState.CONNECTED, ConnectionState.CONNECTING -> {
+                isSwitchingServer = true
+                val token = ++switchToken
+                stopVpnInternal(restartAfterStop = true, restartToken = token)
+            }
+        }
+    }
+
+    /** Tears the current session down (generation bump + native stop off the UI thread). */
+    private fun disconnectVpnInternal() {
+        isSwitchingServer = false
+        switchToken++
+        stopVpnInternal(restartAfterStop = false, restartToken = 0L)
+    }
+
+    private fun stopVpnInternal(restartAfterStop: Boolean, restartToken: Long) {
+        // Bump generation first: any in-flight connect coroutine sees the
+        // new value at its next suspension point and aborts, so native
+        // start()/stop() can never run concurrently.
+        vpnGeneration++
+        connectJob?.cancel()
+        connectJob = null
+        connectionState = ConnectionState.DISCONNECTED
+        lastConfig = ""
+        val ctx = appContext
+        if (ctx != null) {
+            val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
+                action = RedShiftVpnService.ACTION_DISCONNECT
+            }
+            try {
+                ctx.startService(intent)
+            } catch (e: Exception) {
+                Log.e("RedShiftVPN", "disconnect service start failed: ${e.message}")
+            }
+        }
+        // stop() joins the native run loop and can block for a while on some devices;
+        // never run it on the main thread (would ANR the UI). The previous teardown is
+        // cancelled first so two native stop() calls can never overlap.
+        teardownJob?.cancel()
+        teardownJob = scope.launch(Dispatchers.IO) {
+            singBoxManager?.stop()
+            if (restartAfterStop) {
+                // The service handles ACTION_DISCONNECT on its own thread; a short grace
+                // period lets it release the olcRTC runtime (and 127.0.0.1:8788) before
+                // we ask for a brand new tunnel.
+                delay(600)
+                if (isSwitchingServer && switchToken == restartToken &&
+                    connectionState == ConnectionState.DISCONNECTED
+                ) {
+                    isSwitchingServer = false
+                    startVpnInternal()
                 }
-                connectionState = ConnectionState.CONNECTING
-                Log.e("RedShiftVPN", "Starting VPN connect sequence")
+            }
+        }
+        RedShiftVpnService.resetTunState()
+        stopTelemetrySimulation()
+    }
 
-                // Mark this connect attempt with the current generation. Any later
-                // toggle (disconnect) bumps vpnGeneration, and every suspension
-                // point below re-checks it so a stale connect coroutine bails out
-                // instead of racing the native stop().
-                val gen = vpnGeneration
-                connectJob?.cancel()
-                connectJob = scope.launch {
+    /**
+     * Starts a tunnel on the currently selected server. VpnService consent is requested
+     * first (without VpnService.prepare() Builder.establish() returns null on most OEMs),
+     * then the service brings the TUN up and sing-box is attached to its fd.
+     */
+    private fun startVpnInternal() {
+        val ctx = appContext
+        if (ctx == null) {
+            Log.e("RedShiftVPN", "appContext is null")
+            return
+        }
+            // First time the user triggers a connection the system must be asked
+            // to consent to this app using VpnService; without VpnService.prepare()
+            // Builder.establish() instantly returns null on most OEM builds.
+            val consent = VpnService.prepare(ctx)
+            if (consent != null) {
+                try {
+                    val act = currentActivity
+                    if (act != null) {
+                        act.startActivityForResult(consent, VPN_CONSENT_REQUEST)
+                    } else {
+                        consent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        ctx.startActivity(consent)
+                    }
+                    Log.e("RedShiftVPN", "VPN consent requested")
+                } catch (e: Exception) {
+                    Log.e("RedShiftVPN", "VPN consent activity failed: ${e.message}")
+                }
+                return
+            }
+            connectionState = ConnectionState.CONNECTING
+            Log.e("RedShiftVPN", "Starting VPN connect sequence")
+
+            // Mark this connect attempt with the current generation. Any later
+            // toggle (disconnect) bumps vpnGeneration, and every suspension
+            // point below re-checks it so a stale connect coroutine bails out
+            // instead of racing the native stop().
+            val gen = vpnGeneration
+            connectJob?.cancel()
+            connectJob = scope.launch {
+                try {
+                    debugLog("coroutine started, state=$connectionState")
+                    if (gen != vpnGeneration) return@launch
+                    val server = getSelectedServer()
+                    debugLog("server=${server?.name}, proto=${server?.protocol}")
+
+                    if (server == null) {
+                        debugLog("server is null, abort")
+                        connectionState = ConnectionState.DISCONNECTED
+                        return@launch
+                    }
+                    markServerUsed(server.id)
+                    settingsStore?.setSelectedServerId(server.id)
+
+                    val ok = singBoxManager?.ensureBinary() == true
+                    debugLog("binary ok=$ok")
+                    if (!ok) {
+                        connectionState = ConnectionState.DISCONNECTED
+                        return@launch
+                    }
+
+                    val sub = server.toSubServer()
+                    val ctx = appContext
+                    val filesDir = ctx?.filesDir?.absolutePath ?: ""
                     try {
-                        debugLog("coroutine started, state=$connectionState")
-                        if (gen != vpnGeneration) return@launch
-                        val server = getSelectedServer()
-                        debugLog("server=${server?.name}, proto=${server?.protocol}")
-
-                        if (server == null) {
-                            debugLog("server is null, abort")
-                            connectionState = ConnectionState.DISCONNECTED
-                            return@launch
-                        }
-                        markServerUsed(server.id)
-                        settingsStore?.setSelectedServerId(server.id)
-
-                        val ok = singBoxManager?.ensureBinary() == true
-                        debugLog("binary ok=$ok")
-                        if (!ok) {
-                            connectionState = ConnectionState.DISCONNECTED
-                            return@launch
-                        }
-
-                        val sub = server.toSubServer()
-                        val ctx = appContext
-                        val filesDir = ctx?.filesDir?.absolutePath ?: ""
-                        try {
-                            if (ctx != null && filesDir.isNotEmpty()) {
-                                for (assetName in arrayOf("geoip-ru.srs", "geoip-cn.srs")) {
-                                    val srsFile = java.io.File(filesDir, assetName)
-                                    if (!srsFile.exists()) {
-                                        ctx.assets.open(assetName).use { input ->
-                                            srsFile.outputStream().use { output -> input.copyTo(output) }
-                                        }
+                        if (ctx != null && filesDir.isNotEmpty()) {
+                            for (assetName in arrayOf("geoip-ru.srs", "geoip-cn.srs")) {
+                                val srsFile = java.io.File(filesDir, assetName)
+                                if (!srsFile.exists()) {
+                                    ctx.assets.open(assetName).use { input ->
+                                        srsFile.outputStream().use { output -> input.copyTo(output) }
                                     }
                                 }
                             }
-                        } catch (_: Exception) {}
-                        debugLog("generating config...")
-                        // Domain split only makes sense when the user selected the
-                        // "Domains" mode and the toggle is on. In "Apps" mode the TUN
-                        // allow/deny (EXTRA_SPLIT_APPS) handles it, and a stale domain
-                        // list from a previous session must not leak into routing.
-                        val domainSplitEnabled = splitTunnelEnabled && !splitTunnelByApps
-                        val config = withContext(Dispatchers.IO) {
-                            SingBoxConfigGenerator().generateConfig(
-                                sub,
-                                SingBoxManager.SOCKS_PORT,
-                                filesDir,
-                                if (domainSplitEnabled) splitDomains else emptyList(),
-                                domainSplitEnabled && splitTunnelOnly,
-                                routingMode.name.lowercase(),
-                                // RU-direct is an always-on behaviour (original app), CN is off.
-                                bypassRussia = true,
-                                bypassChina = false,
-                                blockAds
-                            )
                         }
-                        debugLog("config length=${config.length}")
-                        lastConfig = config
+                    } catch (_: Exception) {}
+                    debugLog("generating config...")
+                    // Domain split only makes sense when the user selected the
+                    // "Domains" mode and the toggle is on. In "Apps" mode the TUN
+                    // allow/deny (EXTRA_SPLIT_APPS) handles it, and a stale domain
+                    // list from a previous session must not leak into routing.
+                    val domainSplitEnabled = splitTunnelEnabled && !splitTunnelByApps
+                    val config = withContext(Dispatchers.IO) {
+                        SingBoxConfigGenerator().generateConfig(
+                            sub,
+                            SingBoxManager.SOCKS_PORT,
+                            filesDir,
+                            if (domainSplitEnabled) splitDomains else emptyList(),
+                            domainSplitEnabled && splitTunnelOnly,
+                            routingMode.name.lowercase(),
+                            // RU-direct is an always-on behaviour (original app), CN is off.
+                            bypassRussia = true,
+                            bypassChina = false,
+                            blockAds
+                        )
+                    }
+                    debugLog("config length=${config.length}")
+                    lastConfig = config
 
-                        if (gen != vpnGeneration || !isActive) {
-                            debugLog("connect aborted after config gen (generation changed)")
-                            return@launch
-                        }
+                    if (gen != vpnGeneration || !isActive) {
+                        debugLog("connect aborted after config gen (generation changed)")
+                        return@launch
+                    }
 
-                        val isAwg = SingBoxConfigGenerator().isAmneziaProtocol(sub)
+                    val isAwg = SingBoxConfigGenerator().isAmneziaProtocol(sub)
 
-                        debugLog("TUN fd passing for all protocols")
+                    debugLog("TUN fd passing for all protocols")
 val isOlcrtcServer = server.protocol.uppercase().contains("OLCRTC")
-                            val intent1 = Intent(appContext, RedShiftVpnService::class.java).apply {
-                                action = RedShiftVpnService.ACTION_CONNECT_AWG
-                                // App-based split only when the user actually picked the
-                                // "Apps" mode: otherwise a stale app list from a previous
-                                // session would filter the TUN behind the user's back.
-                                if (splitTunnelEnabled && splitTunnelByApps && splitApps.isNotEmpty()) {
-                                    putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS, splitApps.toTypedArray())
-                                    putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS_ONLY, splitTunnelOnly)
-                                }
-                                if (isOlcrtcServer) {
-                                    putExtra(RedShiftVpnService.EXTRA_OLCRTC_URI, server.subExtra.ifBlank { server.address })
-                                }
-                                val srvName = server.name
-                                if (srvName.isNotBlank()) {
-                                    putExtra(RedShiftVpnService.EXTRA_SERVER_LABEL, srvName)
-                                }
-                                putExtra(RedShiftVpnService.EXTRA_NOTIFICATIONS, vpnNotification)
+                        val intent1 = Intent(appContext, RedShiftVpnService::class.java).apply {
+                            action = RedShiftVpnService.ACTION_CONNECT_AWG
+                            // App-based split only when the user actually picked the
+                            // "Apps" mode: otherwise a stale app list from a previous
+                            // session would filter the TUN behind the user's back.
+                            if (splitTunnelEnabled && splitTunnelByApps && splitApps.isNotEmpty()) {
+                                putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS, splitApps.toTypedArray())
+                                putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS_ONLY, splitTunnelOnly)
                             }
-                        appContext?.startService(intent1)
-                        var tunFd = -1
-                        // Race fix: on some OEMs (vivo) VpnService.Builder.establish() takes
-                        // ~10s, so poll up to 40s (was 10s) before giving up on the fd.
-                        // Must run off the main thread — Thread.sleep here would ANR the UI.
-                        tunFd = withContext(Dispatchers.IO) {
-                            var fd = -1
-                            for (i in 1..160) {
-                                if (!isActive || gen != vpnGeneration) break
-                                Thread.sleep(250)
-                                fd = RedShiftVpnService.getLastTunFdRaw()
-                                if (fd > 0) break
+                            if (isOlcrtcServer) {
+                                putExtra(RedShiftVpnService.EXTRA_OLCRTC_URI, server.subExtra.ifBlank { server.address })
                             }
-                            fd
+                            val srvName = server.name
+                            if (srvName.isNotBlank()) {
+                                putExtra(RedShiftVpnService.EXTRA_SERVER_LABEL, srvName)
+                            }
+                            putExtra(RedShiftVpnService.EXTRA_NOTIFICATIONS, vpnNotification)
                         }
-                        debugLog("TUN fd=$tunFd after wait")
-                        if (gen != vpnGeneration || !isActive) {
-                            debugLog("connect aborted after TUN wait (generation changed)")
-                            return@launch
+                    appContext?.startService(intent1)
+                    var tunFd = -1
+                    // Race fix: on some OEMs (vivo) VpnService.Builder.establish() takes
+                    // ~10s, so poll up to 40s (was 10s) before giving up on the fd.
+                    // Must run off the main thread — Thread.sleep here would ANR the UI.
+                    tunFd = withContext(Dispatchers.IO) {
+                        var fd = -1
+                        for (i in 1..160) {
+                            if (!isActive || gen != vpnGeneration) break
+                            Thread.sleep(250)
+                            fd = RedShiftVpnService.getLastTunFdRaw()
+                            if (fd > 0) break
                         }
-                        if (tunFd > 0) {
-                            val started = withContext(Dispatchers.IO) { singBoxManager?.startWithTunFd(config, tunFd) == true }
-                            debugLog("sing-box started with tun fd=$started")
-                            if (!started) {
-                                // Fail-close: never fall back to mixed SOCKS (would leak UDP/DNS).
-                                debugLog("sing-box TUN failed, fail-close (no mixed fallback)")
-                                singBoxManager?.stop()
-                                RedShiftVpnService.resetTunState()
-                                appContext?.startService(Intent(appContext, RedShiftVpnService::class.java).apply {
-                                    action = RedShiftVpnService.ACTION_DISCONNECT
-                                })
-                                connectionState = ConnectionState.DISCONNECTED
-                                return@launch
-                            }
-                        } else {
-                            // TUN fd never arrived — fail-close instead of leaking via mixed SOCKS.
-                            debugLog("TUN fd not available, fail-close (no mixed fallback)")
+                        fd
+                    }
+                    debugLog("TUN fd=$tunFd after wait")
+                    if (gen != vpnGeneration || !isActive) {
+                        debugLog("connect aborted after TUN wait (generation changed)")
+                        return@launch
+                    }
+                    if (tunFd > 0) {
+                        val started = withContext(Dispatchers.IO) { singBoxManager?.startWithTunFd(config, tunFd) == true }
+                        debugLog("sing-box started with tun fd=$started")
+                        if (!started) {
+                            // Fail-close: never fall back to mixed SOCKS (would leak UDP/DNS).
+                            debugLog("sing-box TUN failed, fail-close (no mixed fallback)")
                             singBoxManager?.stop()
                             RedShiftVpnService.resetTunState()
                             appContext?.startService(Intent(appContext, RedShiftVpnService::class.java).apply {
@@ -937,39 +1024,27 @@ val isOlcrtcServer = server.protocol.uppercase().contains("OLCRTC")
                             connectionState = ConnectionState.DISCONNECTED
                             return@launch
                         }
-
-                        connectionState = ConnectionState.CONNECTED
-                        debugLog("setting CONNECTED")
-                        totalDataUsedMb = 0.0
-                        startSessionTimer()
-                    } catch (e: Exception) {
-                        debugLog("EXCEPTION: ${e.javaClass.simpleName}: ${e.message}\n${e.stackTraceToString()}")
+                    } else {
+                        // TUN fd never arrived — fail-close instead of leaking via mixed SOCKS.
+                        debugLog("TUN fd not available, fail-close (no mixed fallback)")
+                        singBoxManager?.stop()
+                        RedShiftVpnService.resetTunState()
+                        appContext?.startService(Intent(appContext, RedShiftVpnService::class.java).apply {
+                            action = RedShiftVpnService.ACTION_DISCONNECT
+                        })
                         connectionState = ConnectionState.DISCONNECTED
+                        return@launch
                     }
+
+                    connectionState = ConnectionState.CONNECTED
+                    debugLog("setting CONNECTED")
+                    totalDataUsedMb = 0.0
+                    startSessionTimer()
+                } catch (e: Exception) {
+                    debugLog("EXCEPTION: ${e.javaClass.simpleName}: ${e.message}\n${e.stackTraceToString()}")
+                    connectionState = ConnectionState.DISCONNECTED
                 }
             }
-            ConnectionState.CONNECTED, ConnectionState.CONNECTING -> {
-                // Bump generation first: any in-flight connect coroutine sees the
-                // new value at its next suspension point and aborts, so native
-                // start()/stop() can never run concurrently.
-                vpnGeneration++
-                connectJob?.cancel()
-                connectJob = null
-                connectionState = ConnectionState.DISCONNECTED
-                lastConfig = ""
-                val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
-                    action = RedShiftVpnService.ACTION_DISCONNECT
-                }
-                ctx.startService(intent)
-                // stop() joins the native run loop and can block for a while on some
-                // devices; never run it on the main thread (would ANR the UI).
-                scope.launch(Dispatchers.IO) {
-                    singBoxManager?.stop()
-                }
-                RedShiftVpnService.resetTunState()
-                stopTelemetrySimulation()
-            }
-        }
     }
 
     private fun startSessionTimer() {

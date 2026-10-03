@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
+import com.example.service.RedShiftTileService
 import com.example.service.RedShiftVpnService
 import com.example.ui.MainAppContainer
 import com.example.ui.RedShiftState
@@ -48,6 +49,8 @@ class MainActivity : ComponentActivity() {
                 MainAppContainer()
             }
         }
+
+        handleTileToggleIfNeeded(intent, savedInstanceState)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -67,5 +70,18 @@ class MainActivity : ComponentActivity() {
         if (intent.action == RedShiftVpnService.ACTION_DISCONNECT) {
             RedShiftState.connectionState = com.example.ui.ConnectionState.DISCONNECTED
         }
+        handleTileToggleIfNeeded(intent, null)
+    }
+
+    /**
+     * A Quick Settings tile tap arrives as this activity's intent. When no tunnel
+     * is live we kick off the normal connect sequence right away.
+     */
+    private fun handleTileToggleIfNeeded(intent: Intent?, savedInstanceState: Bundle?) {
+        if (intent == null) return
+        if (intent.action != RedShiftTileService.ACTION_TOGGLE_VPN) return
+        if (!intent.getBooleanExtra(RedShiftTileService.EXTRA_TOGGLE_FROM_TILE, false)) return
+        if (savedInstanceState != null) return
+        RedShiftState.toggleVpn()
     }
 }
