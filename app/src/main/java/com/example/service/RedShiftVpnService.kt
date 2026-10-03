@@ -16,6 +16,7 @@ import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
+import com.example.BuildConfig
 import kotlinx.coroutines.*
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -42,6 +43,41 @@ class RedShiftVpnService : VpnService() {
     private var euProxyHost = "217.156.64.40"
     private var euProxyPort = 10810
 
+    private var splitApps: List<String> = emptyList()
+    private var splitAppsOnly = false
+
+    private var olcrtcRuntime: mobile.Runtime? = null
+
+    // gomobile requires Go calls to run off the Android main thread (a locked Go
+    // OS thread + a main-thread call into the runtime deadlocks with
+    // "startlockedm: m has p"). A dedicated executor keeps every bind call on
+    // the same worker thread.
+    private var olcrtcExecutor: java.util.concurrent.ExecutorService? = null
+
+    // Every connect attempt (and every disconnect) bumps connectGen. The olcRTC
+    // start runs for seconds, so it re-checks this before touching the TUN and
+    // before publishing the runtime — otherwise a disconnect that lands mid-start
+    // is silently undone and the next connect finds port 8788 still held.
+    private val connectGen = java.util.concurrent.atomic.AtomicLong(0)
+
+    // Same idea for the Go runtime itself: bumped on every start and every stop so
+    // a late-finishing start cannot resurrect a runtime the user already switched away from.
+    private val olcrtcGen = java.util.concurrent.atomic.AtomicLong(0)
+
+    // Every runtime we ever created, including the ones a superseded start never
+    // published. A runtime holds 127.0.0.1:8788 from the moment the room handshake
+    // finishes, so anything that is not in here can leak the SOCKS port and make the
+    // *next* connect look like it hangs.
+    private val olcrtcRuntimes = java.util.concurrent.ConcurrentHashMap<mobile.Runtime, Boolean>()
+
+    @Volatile
+    private var lastOlcrtcError: String? = null
+
+    private fun olcrtcExec(): java.util.concurrent.ExecutorService =
+        olcrtcExecutor ?: java.util.concurrent.Executors.newSingleThreadExecutor().also {
+            olcrtcExecutor = it
+        }
+
     private var nextConnectionId = 0
 
     companion object {
@@ -54,6 +90,44 @@ class RedShiftVpnService : VpnService() {
         const val EXTRA_USE_LOCAL_PROXY = "extra_use_local_proxy"
         const val EXTRA_SOCKS_LOGIN = "extra_socks_login"
         const val EXTRA_SOCKS_PASSWORD = "extra_socks_password"
+        const val EXTRA_SPLIT_APPS = "extra_split_apps"
+        const val EXTRA_SPLIT_APPS_ONLY = "extra_split_apps_only"
+        const val EXTRA_SERVER_LABEL = "extra_server_label"
+        const val EXTRA_NOTIFICATIONS = "extra_notifications"
+        const val EXTRA_OLCRTC_URI = "extra_olcrtc_uri"
+
+        /** Local SOCKS5 port the olcRTC runtime binds; sing-box routes through it. */
+        const val OLCRTC_SOCKS_PORT = 8788
+
+        /**
+         * How long we give the WebRTC room to come up.
+         *
+         * The runtime reports "ready" only after the whole chain completed: the media
+         * link connected, the control stream handshake finished and a peer answered.
+         * The library itself allows 60 s for that and on mobile networks the room join
+         * alone regularly takes 10-20 s (the app is the WebRTC *client* here — the
+         * server also has to raise its peer session). A 9 s cap made a healthy join look
+         * like a dead room: the app tore the runtime down mid-handshake, which made the
+         * server side see a peer that keeps vanishing, and every retry started from a
+         * worse state.
+         */
+        private const val OLCRTC_WAIT_MS = 25000L
+        private const val OLCRTC_STOP_MS = 5000L
+
+        /**
+         * Hard ceiling for one whole olcRTC start (hang guard): slightly above the
+         * readiness window so a wedged Go call can never block the worker thread forever.
+         */
+        private const val OLCRTC_START_HARD_MS = OLCRTC_WAIT_MS + 5000L
+
+        /**
+         * Set when a connect attempt failed inside the service (e.g. the olcRTC room
+         * never became ready) so the UI can fail fast instead of polling for a TUN fd
+         * that will never arrive. Cleared at the start of every connect.
+         */
+        @Volatile
+        var lastStartError: String? = null
+            private set
 
         const val ROUTE_NL = 0
         const val ROUTE_DIRECT = 1
@@ -85,6 +159,41 @@ class RedShiftVpnService : VpnService() {
             f.appendText(line)
         } catch (_: Exception) {}
         Log.e("RedShiftVPN", msg)
+    }
+
+    /**
+     * Foreground notification shown while the VPN is active — small and concise.
+     * When the user disabled notifications in settings we still must post one for
+     * the foreground service to survive, so it just switches to a silent channel.
+     */
+    private fun buildVpnNotification(label: String, show: Boolean): Notification {
+        val silent = !show
+        val channelId = "redshift_vpn"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(
+                channelId,
+                "RedShift VPN",
+                if (silent) NotificationManager.IMPORTANCE_MIN else NotificationManager.IMPORTANCE_LOW
+            )
+            channel.setShowBadge(false)
+            channel.description = "Active VPN connection indicator"
+            nm.createNotificationChannel(channel)
+        }
+        val text = if (label.isBlank()) "VPN active" else "VPN · $label"
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        return builder
+            .setContentTitle("RedShift VPN")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -131,11 +240,49 @@ class RedShiftVpnService : VpnService() {
                 connectVpn()
             }
             ACTION_CONNECT_AWG -> {
-                Log.e("RedShiftVPN", "AWG mode: establishing TUN for fd passing")
+                val label = intent.getStringExtra(EXTRA_SERVER_LABEL) ?: ""
+                val showNotifications = intent.getBooleanExtra(EXTRA_NOTIFICATIONS, true)
+                val pendingSplitApps = intent.getStringArrayExtra(EXTRA_SPLIT_APPS)?.toList() ?: emptyList()
+                val pendingSplitAppsOnly = intent.getBooleanExtra(EXTRA_SPLIT_APPS_ONLY, false)
+                val olcrtcUri = intent.getStringExtra(EXTRA_OLCRTC_URI)
+                    ?.takeIf { OlcrtcUri.isOlcrtcUri(it) }
+
+                lastStartError = null
+                lastOlcrtcError = null
+
+                // Post the notification first and return from onStartCommand immediately.
+                // Everything below (WebRTC room join + Builder.establish(), which alone can
+                // take ~10s on some OEM builds) runs off the main thread — blocking here
+                // froze the whole UI and got the process ANR-killed on protocol switches.
+                startForeground(1, buildVpnNotification(label, showNotifications))
                 registerNetworkCallback()
-                connectTunOnly()
+
+                val myGen = connectGen.incrementAndGet()
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        if (olcrtcUri != null) {
+                            Log.e("RedShiftVPN", "olcRTC: starting runtime")
+                            if (!startOlcrtcRuntime(olcrtcUri, myGen)) {
+                                failConnect(myGen, lastOlcrtcError ?: "olcRTC не подключился")
+                                return@launch
+                            }
+                            debugLogVPN("olcRTC runtime ready (SOCKS 127.0.0.1:$OLCRTC_SOCKS_PORT), state=${olcrtcState()}")
+                        }
+                        if (connectGen.get() != myGen) {
+                            debugLogVPN("connect superseded before TUN, aborting")
+                            return@launch
+                        }
+                        splitApps = pendingSplitApps
+                        splitAppsOnly = pendingSplitAppsOnly
+                        connectTunOnly()
+                    } catch (e: Exception) {
+                        failConnect(myGen, "${e::class.simpleName}: ${e.message}")
+                    }
+                }
             }
             ACTION_DISCONNECT -> {
+                connectGen.incrementAndGet()
+                stopOlcrtcRuntime()
                 disconnectVpn()
                 unregisterNetworkCallback()
                 try { wakeLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
@@ -210,17 +357,208 @@ class RedShiftVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        connectGen.incrementAndGet()
+        stopOlcrtcRuntime()
         disconnectVpn()
+        shutdownOlcrtcExec()
         stopSelf()
         super.onRevoke()
     }
 
     override fun onDestroy() {
         wakeLockRenewalJob?.cancel()
+        connectGen.incrementAndGet()
         unregisterNetworkCallback()
+        stopOlcrtcRuntime()
         disconnectVpn()
+        // shutdown() (not shutdownNow) so the queued stop above still reaches Go and
+        // actually frees 127.0.0.1:8788 for the next session.
+        shutdownOlcrtcExec()
         stopSelf()
         super.onDestroy()
+    }
+
+    private fun shutdownOlcrtcExec() {
+        try {
+            olcrtcExecutor?.shutdown()
+        } catch (_: Exception) {}
+        olcrtcExecutor = null
+    }
+
+    /**
+     * Spins up the gomobile olcRTC (WebRTC-over-Telemost) client runtime and waits
+     * until it is ready. Its local SOCKS5 proxy on 127.0.0.1:8788 is what the
+     * sing-box config routes through via an outbound of type "socks".
+     *
+     * Blocking by design, so it MUST be called off the main thread. Every call into
+     * Go goes through the single-thread executor, so start/stop are strictly ordered:
+     * a stop submitted while a start is still waiting for the room runs right after it
+     * and therefore always finds the port free again.
+     *
+     * @param gen the connect generation this start belongs to; if a disconnect or a new
+     *            connect bumped it meanwhile, the fresh runtime is torn down instead of
+     *            being published (that resurrection used to leak a runtime holding 8788).
+     */
+    private fun startOlcrtcRuntime(uri: String, gen: Long): Boolean {
+        val spec = OlcrtcUri.parse(uri)
+        if (spec == null) {
+            lastOlcrtcError = "не удалось разобрать olcrtc:// ссылку"
+            return false
+        }
+        val myOlcGen = olcrtcGen.incrementAndGet()
+        var startedRt: mobile.Runtime? = null
+        var published = false
+        try {
+            val ready = olcrtcExec().submit(java.util.concurrent.Callable<Boolean> {
+                // gomobile bind requires every call into Go from the SAME single
+                // thread (including object construction) — mixing main-thread
+                // new_() with worker threads crashes with SIGSEGV.
+                val rt = mobile.Mobile.new_()
+                startedRt = rt
+                olcrtcRuntimes[rt] = true
+                rt.setDebug(BuildConfig.DEBUG)
+                // Stable identity per install: the server keys its peer sessions on the
+                // device id, so a fresh UUID per attempt reads as a brand-new device on
+                // every retry (and the server then reaps the previous peer as liveness).
+                rt.setDeviceIDPath(java.io.File(filesDir, "olcrtc_device_id").absolutePath)
+                rt.setProvider(spec.provider)
+                rt.setTransport(spec.transport)
+                rt.setRoom(spec.room)
+                rt.setKey(spec.key)
+                rt.setSocksPort(OLCRTC_SOCKS_PORT.toLong())
+                if (spec.transport == "vp8channel") {
+                    rt.setVP8Options(spec.vp8Fps.toLong(), spec.vp8Batch.toLong())
+                }
+                rt.setProtector(object : mobile.SocketProtector {
+                    override fun protect(fd: Long): Boolean =
+                        // Our own app is already excluded from the TUN (addDisallowedApplication),
+                        // so olcrtc sockets always use the real network directly.
+                        true
+                })
+                rt.start()
+                // Throws (ErrReadyTimeout) when the room never comes up.
+                rt.waitReady(OLCRTC_WAIT_MS)
+                if (olcrtcGen.get() != myOlcGen || connectGen.get() != gen) {
+                    // Switched away while we were joining the room: never publish, the
+                    // finally below tears this runtime down.
+                    debugLogVPN("olcRTC start superseded, runtime discarded")
+                    false
+                } else {
+                    olcrtcRuntime = rt
+                    published = true
+                    debugLogVPN("olcRTC runtime ready (${spec.provider}/${spec.transport}, room=${spec.room})")
+                    true
+                }
+            }).get(OLCRTC_START_HARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            return ready
+        } catch (e: Exception) {
+            val cause = (e as? java.util.concurrent.ExecutionException)?.cause ?: e
+            lastOlcrtcError = when (cause) {
+                is java.util.concurrent.TimeoutException ->
+                    "комната не ответила за ${OLCRTC_WAIT_MS / 1000} с (сеть)"
+                is OutOfMemoryError -> "не хватило памяти"
+                else -> cause.message ?: cause::class.java.simpleName
+            }
+            debugLogVPN("olcRTC runtime error: $lastOlcrtcError")
+            return false
+        } finally {
+            // Every path that does not keep the runtime must tear it down *here*: a
+            // runtime that finished the room handshake already holds 127.0.0.1:8788,
+            // and a leaked one makes the next connect block behind the single-thread
+            // executor until its own start times out (that was the "won't connect
+            // again" symptom). This also covers the hang-guard timeout above: the Go
+            // task stays queued and may publish its runtime afterwards, so re-check
+            // the generation instead of trusting the boolean.
+            val rt = startedRt
+            if (rt != null) {
+                val stillCurrent = published && olcrtcGen.get() == myOlcGen
+                if (!stillCurrent) {
+                    debugLogVPN("olcRTC abandoning unpublished runtime")
+                    olcrtcRuntimes.remove(rt)
+                    if (olcrtcRuntime === rt) olcrtcRuntime = null
+                    if (published) {
+                        // It managed to publish itself behind the timeout: stop it for real.
+                        stopOlcrtcRuntimeObject(rt)
+                    } else {
+                        // May run after the timeout fired — queue the stop so it lands
+                        // as soon as the still-running start returns.
+                        queueOlcrtcStop(rt)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun olcrtcState(): String? =
+        try { olcrtcExec().submit(java.util.concurrent.Callable<String?> { olcrtcRuntime?.state() }).get(2, java.util.concurrent.TimeUnit.SECONDS) }
+        catch (_: Exception) { null }
+
+    /**
+     * Aborts a connect attempt that failed inside the service. Publishes the reason so
+     * the UI can stop waiting for a TUN fd, and only tears the service down if this
+     * attempt is still the current one.
+     */
+    private fun failConnect(gen: Long, reason: String) {
+        // Even when a newer attempt already superseded us, our own runtime must go:
+        // otherwise it keeps the room and the SOCKS port while the new attempt starts.
+        stopOlcrtcRuntime()
+        if (connectGen.get() != gen) return
+        lastStartError = reason
+        debugLogVPN("connect failed: $reason")
+        disconnectVpn()
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try { stopForeground(true) } catch (_: Exception) {}
+            stopSelf()
+        }
+    }
+
+    /** Queues a stop for one specific runtime and forgets it. */
+    private fun stopOlcrtcRuntimeObject(rt: mobile.Runtime) {
+        olcrtcRuntimes.remove(rt)
+        queueOlcrtcStop(rt)
+    }
+
+    /** Queues a stop on the Go worker thread; used even for not-yet-published runtimes. */
+    private fun queueOlcrtcStop(rt: mobile.Runtime) {
+        val exec = olcrtcExec()
+        try {
+            exec.submit(Runnable {
+                try {
+                    if (rt.isRunning()) rt.stop(OLCRTC_STOP_MS)
+                    debugLogVPN("olcRTC runtime stopped")
+                } catch (e: Exception) {
+                    debugLogVPN("olcRTC runtime stop error: ${e.message}")
+                }
+            })
+        } catch (e: Exception) {
+            // The executor was already shut down (service destroyed mid-join). Dropping
+            // the stop here leaks the SOCKS port and the room for the whole process
+            // lifetime — the next connect then fails on "failed to listen on
+            // 127.0.0.1:8788". A one-off worker thread is the lesser evil and this path
+            // only runs during shutdown.
+            debugLogVPN("olcRTC executor refused stop (${e.message}), stopping on a fresh thread")
+            try {
+                Thread({
+                    try { if (rt.isRunning()) rt.stop(OLCRTC_STOP_MS) } catch (_: Exception) {}
+                }, "olcrtc-stop").also { it.isDaemon = true }.start()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun stopOlcrtcRuntime() {
+        // Invalidate any start still in flight *before* looking at the field: a start
+        // that is waiting for the room must not publish its runtime after we tore down.
+        olcrtcGen.incrementAndGet()
+        // A plain olcrtcRuntime is normally also in the registry, but keep both in sync
+        // so a runtime published by an older code path is still stopped.
+        olcrtcRuntime?.let { rt ->
+            olcrtcRuntime = null
+            if (!olcrtcRuntimes.containsKey(rt)) stopOlcrtcRuntimeObject(rt)
+        }
+        for (rt in olcrtcRuntimes.keys.toList()) {
+            stopOlcrtcRuntimeObject(rt)
+        }
+        olcrtcRuntime = null
     }
 
     private fun connectVpn() {
@@ -247,6 +585,8 @@ class RedShiftVpnService : VpnService() {
             Log.e("RedShiftVPN", "addDisallowedApplication failed: ${e.message}")
         }
 
+        applySplitTunnel(builder)
+
         Log.e("RedShiftVPN", "Calling builder.establish()...")
         tunFd = builder.establish()
         if (tunFd == null) {
@@ -263,6 +603,36 @@ class RedShiftVpnService : VpnService() {
             debugLogVPN("VPN loop starting, fd.valid=${fd.fileDescriptor.valid()}")
             runVpnLoop(fd)
         }
+    }
+
+    private fun applySplitTunnel(builder: Builder) {
+        if (splitApps.isEmpty()) return
+        try {
+            if (splitAppsOnly) {
+                // "Only these apps go through the VPN": the rest bypass the tunnel.
+                splitApps.forEach { pkg ->
+                    try {
+                        builder.addAllowedApplication(pkg)
+                    } catch (e: Exception) {
+                        Log.e("RedShiftVPN", "addAllowedApplication($pkg) failed: ${e.message}")
+                    }
+                }
+                Log.e("RedShiftVPN", "Split tunnel (only): ${splitApps.size} apps allowed")
+            } else {
+                // "Everything except these apps": the rest bypass the tunnel.
+                splitApps.forEach { pkg ->
+                    try {
+                        builder.addDisallowedApplication(pkg)
+                    } catch (e: Exception) {
+                        Log.e("RedShiftVPN", "addDisallowedApplication($pkg) failed: ${e.message}")
+                    }
+                }
+                Log.e("RedShiftVPN", "Split tunnel (exclude): ${splitApps.size} apps bypass VPN")
+            }
+        } catch (e: Exception) {
+            Log.e("RedShiftVPN", "split tunnel failed: ${e.message}")
+        }
+        splitApps = emptyList()
     }
 
     private fun connectTunOnly() {
@@ -282,11 +652,19 @@ class RedShiftVpnService : VpnService() {
             builder.setMetered(false)
         }
 
-        try {
-            builder.addDisallowedApplication(packageName)
-        } catch (e: Exception) {
-            Log.e("RedShiftVPN", "addDisallowedApplication failed: ${e.message}")
+        // "Only" mode uses addAllowedApplication — Android forbids mixing it with
+        // addDisallowedApplication (establish() throws IllegalArgumentException).
+        // When only a whitelist is set, our own package is naturally not on it and
+        // its sockets stay on the real network, so no explicit exclusion is needed.
+        if (!splitAppsOnly) {
+            try {
+                builder.addDisallowedApplication(packageName)
+            } catch (e: Exception) {
+                Log.e("RedShiftVPN", "addDisallowedApplication failed: ${e.message}")
+            }
         }
+
+        applySplitTunnel(builder)
 
         tunFd = builder.establish()
         if (tunFd == null) {

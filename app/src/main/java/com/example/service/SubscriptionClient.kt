@@ -63,12 +63,12 @@ class SubscriptionClient {
         .build()
 
     suspend fun fetchSubscription(url: String): SubscriptionResult = withContext(Dispatchers.IO) {
-        if (url.startsWith("vpn://")) {
+        if (url.startsWith("vpn://") || url.startsWith("olcrtc://")) {
             val server = parseProxyUri(url, 0)
             return@withContext if (server != null) {
                 SubscriptionResult(url, listOf(server))
             } else {
-                SubscriptionResult(url, emptyList(), "Invalid AmneziaVPN config")
+                SubscriptionResult(url, emptyList(), "Invalid config link")
             }
         }
         try {
@@ -297,6 +297,28 @@ class SubscriptionClient {
     }
 
     private fun parseProxyUri(uri: String, index: Int): SubServer? {
+        // olcrtc:// uses '#' for the encryption key, not for a UI name, so handle it
+        // before the generic extractName / stripFragment logic that would misparse it.
+        if (uri.trimStart().startsWith("olcrtc://")) {
+            val spec = OlcrtcUri.parse(uri) ?: return null
+            val label = spec.label
+            val flag = when {
+                label.contains("nl", ignoreCase = true) -> "\uD83C\uDDF3\uD83C\uDDF1"
+                label.contains("de", ignoreCase = true) -> "\uD83C\uDDE9\uD83C\uDDEA"
+                label.contains("us", ignoreCase = true) -> "\uD83C\uDDFA\uD83C\uDDF8"
+                label.contains("uk", ignoreCase = true) -> "\uD83C\uDDEC\uD83C\uDDE7"
+                else -> "\uD83C\uDF10"
+            }
+            return SubServer(
+                id = "olcrtc_${Math.abs(uri.hashCode())}",
+                name = label.ifBlank { "${spec.provider}/${spec.transport}" },
+                protocol = "OLCRTC",
+                address = spec.room,
+                port = 0,
+                flag = flag,
+                extra = spec.uri
+            )
+        }
         val name = extractName(uri)
         val cleanUri = stripFragment(uri)
         val parsed = when {
