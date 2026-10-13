@@ -82,7 +82,7 @@ class SettingsStore(private val context: Context) {
     val userId: Flow<String> = context.dataStore.data.map { it[KEY_USER_ID] ?: "" }
     val splitTunnelEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SPLIT_TUNNEL_ENABLED] ?: false }
     val splitTunnelByApps: Flow<Boolean> = context.dataStore.data.map { it[KEY_SPLIT_TUNNEL_BY_APPS] ?: false }
-    val splitTunnelOnly: Flow<Boolean> = context.dataStore.data.map { it[KEY_SPLIT_TUNNEL_ONLY] ?: false }
+    val splitTunnelOnly: Flow<Boolean> = context.dataStore.data.map { it[KEY_SPLIT_TUNNEL_ONLY] ?: true }
     val splitDomains: Flow<String> = context.dataStore.data.map { it[KEY_SPLIT_DOMAINS] ?: "" }
     val splitApps: Flow<String> = context.dataStore.data.map { it[KEY_SPLIT_APPS] ?: "" }
     val routingMode: Flow<String> = context.dataStore.data.map { it[KEY_ROUTING_MODE] ?: "rule" }

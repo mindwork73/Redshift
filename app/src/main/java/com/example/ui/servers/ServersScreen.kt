@@ -60,10 +60,12 @@ import com.example.ui.theme.RedType
 import com.example.ui.theme.VpnColors
 import java.util.Locale
 
-/** Servers whose name marks them as a whitelist ("БС"/"BS") go into a separate trailing section. */
+/** Servers whose name marks them as a whitelist ("БС"/"BS"), plus any OLCRTC connection,
+ *  go into a separate trailing section. */
 private fun isWhitelistServer(server: Server): Boolean {
     val name = server.name.uppercase(Locale.US)
-    return name.contains("БС") || name.contains("BS")
+    val protocol = server.protocol.uppercase(Locale.US)
+    return name.contains("БС") || name.contains("BS") || protocol.contains("OLCRTC")
 }
 
 /**

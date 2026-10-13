@@ -116,7 +116,7 @@ object RedShiftState {
 
     var splitTunnelEnabled by mutableStateOf(false)
     var splitTunnelByApps by mutableStateOf(false)
-    var splitTunnelOnly by mutableStateOf(false)
+    var splitTunnelOnly by mutableStateOf(true)
     var splitDomains by mutableStateOf<List<String>>(emptyList())
     var splitApps by mutableStateOf<List<String>>(emptyList())
 

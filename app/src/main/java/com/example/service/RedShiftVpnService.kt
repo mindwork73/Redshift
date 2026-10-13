@@ -135,6 +135,18 @@ class RedShiftVpnService : VpnService() {
 
         private const val VPN_MTU = 1280
 
+        private val SPLIT_ALWAYS_ALLOWED = listOf(
+            "com.google.android.gms",
+            "com.android.vending",
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.apps.googlemobileui",
+            "com.google.android.webview",
+            "com.android.webview",
+            "com.android.chrome",
+            "com.google.android.providers.media.module",
+            "com.android.providers.media.module",
+        )
+
         @Volatile
         var tunFdRaw: Int = -1
             private set
@@ -615,6 +627,15 @@ class RedShiftVpnService : VpnService() {
                         builder.addAllowedApplication(pkg)
                     } catch (e: Exception) {
                         Log.e("RedShiftVPN", "addAllowedApplication($pkg) failed: ${e.message}")
+                    }
+                }
+                // System network packages that selected apps depend on for content
+                // delivery (GMS, WebView, media provider). Without them, parts of the
+                // app keep bypassing the tunnel and media stops loading.
+                SPLIT_ALWAYS_ALLOWED.forEach { pkg ->
+                    try {
+                        builder.addAllowedApplication(pkg)
+                    } catch (_: Exception) {
                     }
                 }
                 Log.e("RedShiftVPN", "Split tunnel (only): ${splitApps.size} apps allowed")
