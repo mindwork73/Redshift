@@ -121,6 +121,22 @@ class RedShiftVpnService : VpnService() {
         private const val OLCRTC_START_HARD_MS = OLCRTC_WAIT_MS + 5000L
 
         /**
+         * Control-stream liveness for the olcRTC tunnel, handed to the Go runtime via
+         * setLivenessOptions (milliseconds). Kept identical to the server
+         * (srv_telemost.yaml: interval 10 s / timeout 90 s / failures 4) so a silent path
+         * no longer tears the session down at ~75-90 s.
+         *
+         * The library default is timeout 15 s, and olcrtc's tunedConfig() replaces any
+         * control-plane timeout <= 15 s with 45 s — so the timeout here MUST stay well
+         * above 15 s or it is silently overridden. With 90 s + 3 further 10 s ticks the
+         * control stream only dies at ~120 s, by which point the 120 s data-plane smux
+         * is already the limiter.
+         */
+        private const val OLCRTC_LIVENESS_INTERVAL_MS = 10_000L
+        private const val OLCRTC_LIVENESS_TIMEOUT_MS = 90_000L
+        private const val OLCRTC_LIVENESS_FAILURES = 4L
+
+        /**
          * Set when a connect attempt failed inside the service (e.g. the olcRTC room
          * never became ready) so the UI can fail fast instead of polling for a TUN fd
          * that will never arrive. Cleared at the start of every connect.
@@ -441,6 +457,13 @@ class RedShiftVpnService : VpnService() {
                 if (spec.transport == "vp8channel") {
                     rt.setVP8Options(spec.vp8Fps.toLong(), spec.vp8Batch.toLong())
                 }
+                // Match the server's liveness so idle/silent paths do not kill the
+                // control stream early (see OLCRTC_LIVENESS_* above).
+                rt.setLivenessOptions(
+                    OLCRTC_LIVENESS_INTERVAL_MS,
+                    OLCRTC_LIVENESS_TIMEOUT_MS,
+                    OLCRTC_LIVENESS_FAILURES,
+                )
                 rt.setProtector(object : mobile.SocketProtector {
                     override fun protect(fd: Long): Boolean =
                         // Our own app is already excluded from the TUN (addDisallowedApplication),

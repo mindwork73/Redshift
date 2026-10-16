@@ -158,6 +158,13 @@ object RedShiftState {
     val subscriptions = mutableStateListOf<Subscription>()
     val routingRules = mutableStateListOf<RoutingRule>()
 
+    /**
+     * Identity keys of servers the user deleted. Loaded from [com.example.service.SettingsStore]
+     * and consulted wherever the list is rebuilt (cache loader and subscription importer) so a
+     * deleted server stays gone even though its subscription keeps re-sending it.
+     */
+    var hiddenServers by mutableStateOf<Set<String>>(emptySet())
+
     private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var timerJob: Job? = null
     private var telemetryJob: Job? = null
@@ -287,6 +294,9 @@ private fun loadCachedServers() {
         val store = settingsStore ?: return
         scope.launch {
             val json = store.getBlockingCachedServersJson()
+            // Read blocking here: this runs during init, before the reactive collector in
+            // loadFromSettings() has had a chance to populate hiddenServers.
+            val hidden = store.getBlockingHiddenServers()
             if (json.isNotBlank()) {
                 try {
                     val arr = org.json.JSONArray(json)
@@ -297,6 +307,7 @@ private fun loadCachedServers() {
                     for (i in 0 until deduped.length()) {
                         val obj = deduped.getJSONObject(i)
                         val candidate = serverFromCacheObject(obj)
+                        if (hideKeysFor(candidate).any { it in hidden }) continue
                         if (servers.any { it.id == candidate.id || it.sameEndpointAs(candidate) || it.sameNamedAs(candidate) }) continue
                         servers.add(candidate)
                     }
@@ -354,6 +365,35 @@ private fun loadCachedServers() {
         if (addr.isBlank() || port <= 0) return null
         return "$addr:$port:$proto"
     }
+
+    /**
+     * Identity keys of a server used to recognise it after it comes back from the cache or
+     * the subscription. The importer already treats a rotated node (same logical name, new
+     * id/IP) as the same server, so a deletion has to match on the same set of keys —
+     * otherwise the deleted server simply reappears once the subscription rotates its IP.
+     */
+    private fun hideKeysForParts(id: String, name: String, protocol: String, address: String, port: Int): List<String> {
+        val keys = mutableListOf<String>()
+        if (id.isNotBlank()) keys.add("id:$id")
+        endpointKey(protocol, address, port)?.let { keys.add("ep:$it") }
+        val norm = name.uppercase().trim().filter { it.isLetterOrDigit() || it == ' ' }.trim()
+        if (norm.isNotBlank()) {
+            keys.add("nm:${protocol.uppercase().substringBefore('+').trim()}::$norm")
+        }
+        return keys
+    }
+
+    private fun hideKeysFor(s: Server): List<String> =
+        hideKeysForParts(s.id, s.name, s.protocol, s.address, s.port)
+
+    /** True when the server matches any identity key stored in [hiddenServers]. */
+    private fun isHiddenParts(id: String, name: String, protocol: String, address: String, port: Int): Boolean {
+        if (hiddenServers.isEmpty()) return false
+        return hideKeysForParts(id, name, protocol, address, port).any { it in hiddenServers }
+    }
+
+    private fun isHiddenServer(candidate: Server): Boolean =
+        isHiddenParts(candidate.id, candidate.name, candidate.protocol, candidate.address, candidate.port)
 
     private fun Server.sameEndpointAs(other: Server): Boolean {
         return endpointKey(protocol, address, port) != null &&
@@ -510,6 +550,9 @@ private fun loadCachedServers() {
         }
         scope.launch {
             store.sortByPing.collect { sortByPing = it }
+        }
+        scope.launch {
+            store.hiddenServers.collect { hiddenServers = it }
         }
     }
 
@@ -675,6 +718,9 @@ private fun loadCachedServers() {
                 subExtra = sub.extra,
                 subAlpn = sub.alpn
             )
+            // Skip servers the user deleted earlier, so a subscription refresh does not
+            // resurrect them (they are keyed by id / endpoint / logical name).
+            if (isHiddenServer(candidate)) continue
             // Dedupe by id, endpoint and logical name: the whitelist subscription
             // refreshes with new ids/IPs, which used to double entire servers.
             if (servers.none { it.id == id || it.sameEndpointAs(candidate) || it.sameNamedAs(candidate) }) {
@@ -759,10 +805,48 @@ private fun loadCachedServers() {
     }
 
     fun removeServer(serverId: String) {
+        val wasActive = selectedServerId == serverId
+        servers.find { it.id == serverId }?.let { hideServer(it) }
         servers.removeAll { it.id == serverId }
         recentServers.removeAll { it.id == serverId }
-        if (selectedServerId == serverId) {
+        if (wasActive) {
+            // The tunnel is (or is still starting) on the server the user just deleted, so
+            // tear it down — otherwise the session keeps running on a server that is gone.
+            if (connectionState == ConnectionState.CONNECTED ||
+                connectionState == ConnectionState.CONNECTING
+            ) {
+                disconnectVpnInternal()
+            }
             selectedServerId = servers.firstOrNull()?.id ?: ""
+            scope.launch { settingsStore?.setSelectedServerId(selectedServerId) }
+        }
+    }
+
+    /**
+     * Records a server in the deleted set so the cache loader and the subscription importer
+     * skip it from now on. The server list is rebuilt from those two sources on every launch
+     * and refresh, so a plain removal from memory would only last until the next resync.
+     */
+    private fun hideServer(s: Server) {
+        val next = hiddenServers + hideKeysFor(s)
+        hiddenServers = next
+        scope.launch { settingsStore?.setHiddenServers(next) }
+    }
+
+    /**
+     * Brings back every server the user deleted. The hidden set is cleared and persisted
+     * first, then the list is rebuilt: from the cache (covers locally imported servers) and,
+     * when a subscription link is set, by re-fetching it — a subscription refresh drops
+     * hidden rows from the cache, so those only come back over the network.
+     */
+    fun restoreHiddenServers() {
+        if (hiddenServers.isEmpty()) return
+        hiddenServers = emptySet()
+        scope.launch {
+            settingsStore?.setHiddenServers(emptySet())
+            loadCachedServers()
+            val url = subscriptionUrl
+            if (url.startsWith("http")) importSubscription(url)
         }
     }
 
@@ -1255,11 +1339,17 @@ if (isSingleCustomLink) {
         // slices must not double, stale url-less rows must not shadow current ones.
         val serversJson = org.json.JSONArray()
         val seen = HashSet<String>()
+        val hidden = store.getBlockingHiddenServers()
         try {
             val existing = org.json.JSONArray(store.getBlockingCachedServersJson())
             for (i in 0 until existing.length()) {
                 val obj = existing.getJSONObject(i)
                 if (obj.optString("url") == subUrl) continue
+                if (hideKeysForParts(
+                        obj.optString("id", ""), obj.optString("name", ""), obj.optString("protocol", ""),
+                        obj.optString("address", ""), obj.optInt("port", 0)
+                    ).any { it in hidden }
+                ) continue
                 val key = endpointKey(
                     obj.optString("protocol", ""),
                     obj.optString("address", ""),
@@ -1270,6 +1360,7 @@ if (isSingleCustomLink) {
             }
         } catch (_: Exception) {}
         for (s in serverList) {
+            if (hideKeysForParts(s.id, s.name, s.protocol, s.address, s.port).any { it in hidden }) continue
             val key = endpointKey(s.protocol, s.address, s.port)
             if (key != null && !seen.add(key)) continue
             serversJson.put(org.json.JSONObject().apply {

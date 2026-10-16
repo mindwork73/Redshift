@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -55,6 +56,14 @@ class SettingsStore(private val context: Context) {
         val KEY_BLOCK_ADS = booleanPreferencesKey("block_ads")
         val KEY_AUTO_SELECT_BEST = booleanPreferencesKey("auto_select_best")
         val KEY_SORT_BY_PING = booleanPreferencesKey("sort_by_ping")
+
+        /**
+         * Servers the user deleted from the list, stored as identity keys (see
+         * `RedShiftState.hideKeysForParts`). The server list itself is rebuilt from the
+         * cache and the subscription on every launch, so without this set a deleted
+         * server would reappear on the next refresh.
+         */
+        val KEY_HIDDEN_SERVERS = stringSetPreferencesKey("hidden_servers")
     }
 
     val startOnBoot: Flow<Boolean> = context.dataStore.data.map { it[KEY_START_ON_BOOT] ?: false }
@@ -93,6 +102,7 @@ class SettingsStore(private val context: Context) {
     val blockAds: Flow<Boolean> = context.dataStore.data.map { it[KEY_BLOCK_ADS] ?: false }
     val autoSelectBest: Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_SELECT_BEST] ?: false }
     val sortByPing: Flow<Boolean> = context.dataStore.data.map { it[KEY_SORT_BY_PING] ?: false }
+    val hiddenServers: Flow<Set<String>> = context.dataStore.data.map { it[KEY_HIDDEN_SERVERS] ?: emptySet() }
 
     suspend fun setStartOnBoot(value: Boolean) = context.dataStore.edit { it[KEY_START_ON_BOOT] = value }
     suspend fun setKillSwitch(value: Boolean) = context.dataStore.edit { it[KEY_KILL_SWITCH] = value }
@@ -130,6 +140,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setBlockAds(value: Boolean) = context.dataStore.edit { it[KEY_BLOCK_ADS] = value }
     suspend fun setAutoSelectBest(value: Boolean) = context.dataStore.edit { it[KEY_AUTO_SELECT_BEST] = value }
     suspend fun setSortByPing(value: Boolean) = context.dataStore.edit { it[KEY_SORT_BY_PING] = value }
+    suspend fun setHiddenServers(value: Set<String>) = context.dataStore.edit { it[KEY_HIDDEN_SERVERS] = value }
 
     fun getBlockingRoutingMode(): String {
         return runBlocking { routingMode.first() }
@@ -169,6 +180,10 @@ class SettingsStore(private val context: Context) {
 
     fun getBlockingCachedServersJson(): String {
         return runBlocking { cachedServersJson.first() }
+    }
+
+    fun getBlockingHiddenServers(): Set<String> {
+        return runBlocking { hiddenServers.first() }
     }
 
     fun getBlockingExpiryTs(): Long {

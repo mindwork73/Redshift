@@ -138,6 +138,11 @@ fun ServersScreen() {
             EmptyServers(onAddSubscription = { showImportSheet = true })
         } else {
             SectionTitle(text = "${t("all_servers")} (${ordered.size})")
+            Text(
+                text = t("delete_server_hint"),
+                style = RedType.Caption,
+                color = VpnColors.TextTertiary
+            )
             Spacer(Modifier.height(RedSpace.Xs))
 
             GlassSurface(
@@ -157,9 +162,7 @@ fun ServersScreen() {
                             RedShiftState.selectServer(server.id)
                             RedShiftState.restartConnection()
                         },
-                        onLongClick = {
-                            if (server.isCustom) serverToDelete = server
-                        }
+                        onLongClick = { serverToDelete = server }
                     )
                 }
             }
@@ -182,13 +185,21 @@ fun ServersScreen() {
                                 RedShiftState.selectServer(server.id)
                                 RedShiftState.restartConnection()
                             },
-                            onLongClick = {
-                                if (server.isCustom) serverToDelete = server
-                            }
+                            onLongClick = { serverToDelete = server }
                         )
                     }
                 }
             }
+        }
+
+        // Shown whenever the user deleted something, so deleted servers can be brought back
+        // even when the visible list is (almost) empty.
+        if (RedShiftState.hiddenServers.isNotEmpty()) {
+            Spacer(Modifier.height(RedSpace.S))
+            GradientButton(
+                text = t("restore_hidden_servers"),
+                onClick = { RedShiftState.restoreHiddenServers() }
+            )
         }
 
         Spacer(Modifier.height(RedSpace.M))
@@ -202,7 +213,7 @@ fun ServersScreen() {
         AlertDialog(
             onDismissRequest = { serverToDelete = null },
             title = { Text(text = t("delete_server")) },
-            text = { Text(text = t("delete_server_confirm")) },
+            text = { Text(text = "${server.name}\n\n${t("delete_server_confirm")}") },
             containerColor = VpnColors.Background,
             titleContentColor = VpnColors.TextPrimary,
             textContentColor = VpnColors.TextSecondary,

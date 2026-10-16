@@ -76,6 +76,14 @@ object UiText {
             "ru" to "Удалить этот сервер из списка?"
         ),
         "delete" to mapOf("en" to "Delete", "ru" to "Удалить"),
+        "delete_server_hint" to mapOf(
+            "en" to "Long-press a server to remove it from the list",
+            "ru" to "Долгое нажатие на сервер — удалить его из списка"
+        ),
+        "restore_hidden_servers" to mapOf(
+            "en" to "Restore deleted servers",
+            "ru" to "Восстановить удалённые серверы"
+        ),
         "empty_servers_desc" to mapOf(
             "en" to "No subscriptions yet. Add a link in Settings.",
             "ru" to "Подписок нет — добавьте ссылку в настройках."
