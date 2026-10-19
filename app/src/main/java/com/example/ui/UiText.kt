@@ -191,6 +191,10 @@ object UiText {
             "en" to "Tap to share the log",
             "ru" to "Нажмите, чтобы отправить лог"
         ),
+        "share_log" to mapOf(
+            "en" to "Send logs",
+            "ru" to "Отправить логи"
+        ),
         "local_port" to mapOf("en" to "Local port", "ru" to "Локальный порт"),
         "support" to mapOf("en" to "Support", "ru" to "Поддержка"),
 
@@ -205,10 +209,10 @@ object UiText {
         "support_bot" to mapOf("en" to "Support bot", "ru" to "Бот поддержки"),
         "no_limit" to mapOf("en" to "No limit", "ru" to "Без лимита"),
         "device_count" to mapOf("en" to "%1\$d of %2\$d", "ru" to "%1\$d из %2\$d"),
-        "auto_select_best" to mapOf("en" to "Auto-select fastest", "ru" to "Автовыбор быстрого"),
+        "auto_select_best" to mapOf("en" to "Auto-select best", "ru" to "Автовыбор лучшего"),
         "auto_select_best_desc" to mapOf(
-            "en" to "After measuring, pick the server with the lowest ping",
-            "ru" to "После замера пинга выбрать сервер с минимальной задержкой"
+            "en" to "After measuring, pick the least loaded server, then the lowest ping",
+            "ru" to "После замера выбрать наименее загруженный сервер, затем с минимальной задержкой"
         ),
         "cd_sort_by_ping" to mapOf("en" to "Sort by latency", "ru" to "Сортировка по пингу")
     )

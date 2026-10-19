@@ -192,6 +192,19 @@ object RedShiftState {
     var sortByPing by mutableStateOf(false)
     var autoSelectBestServer by mutableStateOf(false)
 
+    /**
+     * Balancer region ("nl", "eu1") → selection score, lower wins. Filled from
+     * GET /api/v1/load by the pings and left empty when the API is unreachable, in
+     * which case the auto-select ranks purely by ping.
+     */
+    var serverLoad by mutableStateOf<Map<String, Int>>(emptyMap())
+
+    /** Score of a server the balancer has no metric for: behind every known region. */
+    private const val OVERLOADED_SCORE = Int.MAX_VALUE
+
+    /** Region token bounded by separators, so "Premium" does not read as "eu". */
+    private val REGION_TOKEN = Regex("(?i)(?:^|[-_/.\\s])(nl|eu1|eu|de|us|uk|sg)(?:$|[-_/.\\s])")
+
     private var settingsStore: SettingsStore? = null
     private var appContext: Context? = null
     private var singBoxManager: SingBoxManager? = null
@@ -274,13 +287,7 @@ object RedShiftState {
     }
 
     private fun debugLog(msg: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-        val line = "$ts $msg\n"
-        try {
-            val f = java.io.File(appContext?.filesDir, "redshift_debug.log")
-            f.appendText(line)
-        } catch (_: Exception) {}
-        Log.e("RedShift", msg)
+        DiagLog.d("RedShift", msg)
     }
 
     fun readDebugLog(): String {
@@ -297,7 +304,9 @@ private fun loadCachedServers() {
             // Read blocking here: this runs during init, before the reactive collector in
             // loadFromSettings() has had a chance to populate hiddenServers.
             val hidden = store.getBlockingHiddenServers()
+            debugLog("cache load: json=${json.length} hidden=${hidden.size} keys=$hidden")
             if (json.isNotBlank()) {
+                var loaded = 0
                 try {
                     val arr = org.json.JSONArray(json)
                     // Heal the persisted cache if old builds stored duplicates
@@ -307,15 +316,23 @@ private fun loadCachedServers() {
                     for (i in 0 until deduped.length()) {
                         val obj = deduped.getJSONObject(i)
                         val candidate = serverFromCacheObject(obj)
-                        if (hideKeysFor(candidate).any { it in hidden }) continue
+                        if (hideKeysFor(candidate).any { it in hidden }) {
+                            debugLog("cache hidden-skip name='${candidate.name}' addr=${candidate.address}:${candidate.port}")
+                            continue
+                        }
                         if (servers.any { it.id == candidate.id || it.sameEndpointAs(candidate) || it.sameNamedAs(candidate) }) continue
                         servers.add(candidate)
+                        loaded++
                     }
                     if (deduped.length() < arr.length()) {
                         store.setCachedServersJson(deduped.toString())
                         store.setCachedServersCount(deduped.length())
+                        debugLog("cache heal: ${arr.length()} -> ${deduped.length()}")
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    debugLog("cache load failed ${e::class.simpleName}: ${e.message}")
+                }
+                debugLog("cache load done: loaded=$loaded total=${servers.size}")
             }
         }
     }
@@ -567,6 +584,10 @@ private fun loadCachedServers() {
     fun pingAllServers() {
         val snapshot = servers.toList()
         scope.launch(Dispatchers.IO) {
+            // Fetched in parallel with the pings: by the time the auto-select below runs
+            // the metric is usually ready, and if it is not (API down, first launch) the
+            // map simply stays empty and the choice falls back to ping only.
+            val loadDeferred = async { apiClient.getLoad() }
             for (server in snapshot) {
                 val index = servers.indexOfFirst { it.id == server.id }
                 if (index < 0) continue
@@ -590,19 +611,97 @@ private fun loadCachedServers() {
                     if (i >= 0) servers[i] = servers[i].copy(latency = ms)
                 }
             }
+            val score = scoreRegions(loadDeferred.await())
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                serverLoad = score
+            }
+            debugLog("load scores=$score")
             if (autoSelectBestServer && connectionState != ConnectionState.CONNECTED) {
-                val best = servers
-                    .filter { it.latency > 0 }
-                    .minByOrNull { it.latency }
+                val best = pickAutoServer(servers.filter { it.latency > 0 })
                 if (best != null) {
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
                         // Do not steal an in-progress user selection while connecting.
                         if (connectionState != ConnectionState.CONNECTING) {
+                            debugLog("auto-select ${best.name} load=${serverLoad[loadKeyFor(best)]} ping=${best.latency}")
                             selectServer(best.id)
                         }
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Turn the raw API metric into the score used by the auto-select.
+     *
+     * Issued devices are the primary signal: they say how much spare capacity a region
+     * still has, and NL (6 devices) has far more of it than EU (250) even though their
+     * live peer counts are comparable — which is exactly the imbalance this selection
+     * exists to correct. A region is only pushed behind every other region when it is
+     * worse on BOTH signals (at least as many devices and more than twice the live
+     * peers), so a small region that happens to have a couple of busy peers is not
+     * mistaken for a full one.
+     */
+    private fun scoreRegions(raw: Map<String, com.example.service.RegionLoad>): Map<String, Int> {
+        if (raw.isEmpty()) return emptyMap()
+        val overloaded = raw.filter { (region, me) ->
+            me.active >= 0 && raw.any { (other, theirs) ->
+                other != region &&
+                    theirs.active >= 0 &&
+                    theirs.devices <= me.devices &&
+                    me.active > 2 * theirs.active
+            }
+        }.keys
+        return raw.mapValues { (region, load) ->
+            if (region in overloaded) OVERLOADED_SCORE else load.devices.coerceAtLeast(0)
+        }
+    }
+
+    /** Lowest score wins; ping breaks ties. */
+    private fun pickAutoServer(candidates: List<Server>): Server? =
+        candidates.minWithOrNull(compareBy({ loadScore(it) }, { it.latency }))
+
+    /**
+     * Score of a single server. A server whose region has no metric gets
+     * [OVERLOADED_SCORE] so it never beats a region we actually have data for — but
+     * when no metric is available at all every score is 0 and the comparison collapses
+     * to the old fastest-ping behaviour.
+     */
+    private fun loadScore(s: Server): Int {
+        if (serverLoad.isEmpty()) return 0
+        return serverLoad[loadKeyFor(s)] ?: OVERLOADED_SCORE
+    }
+
+    /**
+     * Maps a server onto a balancer region key ("nl" / "eu1"), or "" when it belongs to
+     * no region we track.
+     *
+     * Plain VPN rows carry an IP, which [deriveRegionFromAddress] already handles. The
+     * olcRTC rows do not — their address is a room URL
+     * (https://meet.egovm.ru/redpill-olcrtc-nl) — so for those the region token is
+     * matched in the room URL and in the server name instead.
+     */
+    private fun loadKeyFor(s: Server): String {
+        val region = deriveRegionFromAddress(s.address).ifBlank {
+            regionTokenIn("${s.address} ${s.name}")
+        }
+        return when (region) {
+            "NL" -> "nl"
+            "EU" -> "eu1"
+            else -> region.lowercase(java.util.Locale.US)
+        }
+    }
+
+    /** "…-nl", "…/eu1…", "RedPill EU" → NL / EU / …, anything else → "". */
+    private fun regionTokenIn(text: String): String {
+        val m = REGION_TOKEN.find(text) ?: return ""
+        return when (m.value.lowercase(java.util.Locale.US)) {
+            "nl" -> "NL"
+            "eu", "eu1", "de" -> "EU"
+            "us" -> "US"
+            "uk" -> "UK"
+            "sg" -> "SG"
+            else -> ""
         }
     }
 
@@ -720,13 +819,19 @@ private fun loadCachedServers() {
             )
             // Skip servers the user deleted earlier, so a subscription refresh does not
             // resurrect them (they are keyed by id / endpoint / logical name).
-            if (isHiddenServer(candidate)) continue
+            if (isHiddenServer(candidate)) {
+                debugLog("hidden-skip name='${candidate.name}' addr=${candidate.address}:${candidate.port} keys=${hideKeysForParts(candidate.id, candidate.name, candidate.protocol, candidate.address, candidate.port)}")
+                continue
+            }
             // Dedupe by id, endpoint and logical name: the whitelist subscription
             // refreshes with new ids/IPs, which used to double entire servers.
             if (servers.none { it.id == id || it.sameEndpointAs(candidate) || it.sameNamedAs(candidate) }) {
                 servers.add(candidate)
+            } else {
+                debugLog("dupe-skip name='${candidate.name}' addr=${candidate.address}:${candidate.port}")
             }
         }
+        debugLog("addFromSub url=${subUrl.take(80)} parsed=${subServers.size} kept=${servers.size}")
     }
 
     private fun expiresAtToMillis(expiresAt: String?): Long {
@@ -806,7 +911,9 @@ private fun loadCachedServers() {
 
     fun removeServer(serverId: String) {
         val wasActive = selectedServerId == serverId
-        servers.find { it.id == serverId }?.let { hideServer(it) }
+        val victim = servers.find { it.id == serverId }
+        debugLog("remove id=$serverId name='${victim?.name ?: "-"}' wasActive=$wasActive state=$connectionState")
+        victim?.let { hideServer(it) }
         servers.removeAll { it.id == serverId }
         recentServers.removeAll { it.id == serverId }
         if (wasActive) {
@@ -815,9 +922,11 @@ private fun loadCachedServers() {
             if (connectionState == ConnectionState.CONNECTED ||
                 connectionState == ConnectionState.CONNECTING
             ) {
+                debugLog("remove: active server deleted, disconnecting")
                 disconnectVpnInternal()
             }
             selectedServerId = servers.firstOrNull()?.id ?: ""
+            debugLog("remove: selectedServerId -> '${selectedServerId}'")
             scope.launch { settingsStore?.setSelectedServerId(selectedServerId) }
         }
     }
@@ -828,7 +937,9 @@ private fun loadCachedServers() {
      * and refresh, so a plain removal from memory would only last until the next resync.
      */
     private fun hideServer(s: Server) {
-        val next = hiddenServers + hideKeysFor(s)
+        val keys = hideKeysFor(s)
+        val next = hiddenServers + keys
+        debugLog("hide name='${s.name}' keys=$keys hiddenCount=${next.size}")
         hiddenServers = next
         scope.launch { settingsStore?.setHiddenServers(next) }
     }
@@ -841,6 +952,7 @@ private fun loadCachedServers() {
      */
     fun restoreHiddenServers() {
         if (hiddenServers.isEmpty()) return
+        debugLog("restore hidden=${hiddenServers.size} keys=$hiddenServers")
         hiddenServers = emptySet()
         scope.launch {
             settingsStore?.setHiddenServers(emptySet())
@@ -861,15 +973,16 @@ private fun loadCachedServers() {
 
     /** Selects a server and persists the choice so the Home card survives restarts. */
     fun selectServer(serverId: String) {
+        debugLog("select id=$serverId state=$connectionState")
         selectedServerId = serverId
         scope.launch { settingsStore?.setSelectedServerId(serverId) }
     }
 
     fun toggleVpn() {
-        Log.e("RedShiftVPN", "toggleVpn() called, state=$connectionState")
+        debugLog("toggle state=$connectionState")
         val ctx = appContext
         if (ctx == null) {
-            Log.e("RedShiftVPN", "appContext is null")
+            debugLog("toggle aborted: appContext is null")
             return
         }
         when (connectionState) {
@@ -888,11 +1001,13 @@ private fun loadCachedServers() {
      * olcRTC room / SOCKS port and the fresh attempt fails on top of the dying one.
      */
     fun restartConnection() {
+        debugLog("restart state=$connectionState server='$selectedServerId'")
         when (connectionState) {
             ConnectionState.DISCONNECTED -> startVpnInternal()
             ConnectionState.CONNECTED, ConnectionState.CONNECTING -> {
                 isSwitchingServer = true
                 val token = ++switchToken
+                debugLog("restart: stop then start, token=$token")
                 stopVpnInternal(restartAfterStop = true, restartToken = token)
             }
         }
@@ -900,12 +1015,14 @@ private fun loadCachedServers() {
 
     /** Tears the current session down (generation bump + native stop off the UI thread). */
     private fun disconnectVpnInternal() {
+        debugLog("disconnect state=$connectionState")
         isSwitchingServer = false
         switchToken++
         stopVpnInternal(restartAfterStop = false, restartToken = 0L)
     }
 
     private fun stopVpnInternal(restartAfterStop: Boolean, restartToken: Long) {
+        debugLog("stop gen=${vpnGeneration + 1} restart=$restartAfterStop token=$restartToken")
         // Bump generation first: any in-flight connect coroutine sees the
         // new value at its next suspension point and aborts, so native
         // start()/stop() can never run concurrently.
@@ -922,7 +1039,7 @@ private fun loadCachedServers() {
             try {
                 ctx.startService(intent)
             } catch (e: Exception) {
-                Log.e("RedShiftVPN", "disconnect service start failed: ${e.message}")
+                debugLog("disconnect service start failed: ${e.message}")
             }
         }
         // stop() joins the native run loop and can block for a while on some devices;
@@ -939,8 +1056,11 @@ private fun loadCachedServers() {
                 if (isSwitchingServer && switchToken == restartToken &&
                     connectionState == ConnectionState.DISCONNECTED
                 ) {
+                    debugLog("restart: grace over, starting (token=$restartToken)")
                     isSwitchingServer = false
                     startVpnInternal()
+                } else {
+                    debugLog("restart cancelled: switching=$isSwitchingServer token=$switchToken/$restartToken state=$connectionState")
                 }
             }
         }

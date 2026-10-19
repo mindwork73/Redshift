@@ -41,6 +41,12 @@ object DiagnosticExporter {
                 w.write(" error=${com.example.ui.RedShiftState.vpnError ?: "-"}\n")
                 w.write("tunReady=${RedShiftVpnService.tunReady} tunFd=${RedShiftVpnService.tunFdRaw}")
                 w.write(" lastStartError=${RedShiftVpnService.lastStartError ?: "-"}\n")
+                w.write("olcrtcError=${RedShiftVpnService.lastOlcrtcErrorForDiag() ?: "-"}\n")
+                // Server-list state: the "subscription shows 2 of 3 servers" report is
+                // answered by whether a row was deleted (hidden) or never parsed.
+                val state = com.example.ui.RedShiftState
+                w.write("servers=${state.servers.size} hidden=${state.hiddenServers.size} keys=${state.hiddenServers}\n")
+                w.write("selected='${state.selectedServerId}' sub=${state.subscriptionUrl.take(120)}\n")
 
                 section(w, "debug log", File(context.filesDir, "redshift_debug.log"))
                 section(w, "sing-box err.txt", File(context.filesDir, "singbox/err.txt"))

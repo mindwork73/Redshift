@@ -25,6 +25,11 @@ import java.net.Socket
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 
+// Kept at file level (not as a private field) so the companion object can hand the value
+// to DiagnosticExporter without an instance of the service.
+@Volatile
+private var lastOlcrtcError: String? = null
+
 class RedShiftVpnService : VpnService() {
 
     private var tunFd: ParcelFileDescriptor? = null
@@ -50,9 +55,14 @@ class RedShiftVpnService : VpnService() {
 
     // gomobile requires Go calls to run off the Android main thread (a locked Go
     // OS thread + a main-thread call into the runtime deadlocks with
-    // "startlockedm: m has p"). A dedicated executor keeps every bind call on
-    // the same worker thread.
-    private var olcrtcExecutor: java.util.concurrent.ExecutorService? = null
+    // "startlockedm: m has p") AND, more importantly, every call into Go — object
+    // construction included — has to happen on the SAME OS thread for the whole
+    // process lifetime. This used to be a per-service executor that onDestroy() shut
+    // down, so the next connect created a *new* thread and called into a Go runtime
+    // that was still alive: a native SIGSEGV (uncatchable from Java) that only shows
+    // up after an attempt which did not end in a clean stop. One process-wide thread,
+    // never shut down, removes that failure mode and also keeps every queued stop
+    // reachable (no RejectedExecutionException). See OLCRTC_EXEC.
 
     // Every connect attempt (and every disconnect) bumps connectGen. The olcRTC
     // start runs for seconds, so it re-checks this before touching the TUN and
@@ -70,13 +80,7 @@ class RedShiftVpnService : VpnService() {
     // *next* connect look like it hangs.
     private val olcrtcRuntimes = java.util.concurrent.ConcurrentHashMap<mobile.Runtime, Boolean>()
 
-    @Volatile
-    private var lastOlcrtcError: String? = null
-
-    private fun olcrtcExec(): java.util.concurrent.ExecutorService =
-        olcrtcExecutor ?: java.util.concurrent.Executors.newSingleThreadExecutor().also {
-            olcrtcExecutor = it
-        }
+    private fun olcrtcExec(): java.util.concurrent.ExecutorService = OLCRTC_EXEC
 
     private var nextConnectionId = 0
 
@@ -98,6 +102,20 @@ class RedShiftVpnService : VpnService() {
 
         /** Local SOCKS5 port the olcRTC runtime binds; sing-box routes through it. */
         const val OLCRTC_SOCKS_PORT = 8788
+
+        /**
+         * The one and only thread that is ever allowed to talk to the olcRTC Go runtime.
+         *
+         * gomobile's bind layer is thread-sensitive: a Go call from a different OS thread
+         * than the one that created the runtime crashes the process with SIGSEGV (and the
+         * crash is native, so nothing in the app can catch or report it). Because it is
+         * process-wide and never shut down, a service restart or a retry after a failed
+         * attempt reuses the same thread instead of spawning a second one.
+         */
+        private val OLCRTC_EXEC: java.util.concurrent.ExecutorService =
+            java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+                Thread(r, "olcrtc-go").apply { isDaemon = true }
+            }
 
         /**
          * How long we give the WebRTC room to come up.
@@ -177,16 +195,13 @@ class RedShiftVpnService : VpnService() {
         }
 
         fun getLastTunFdRaw(): Int = tunFdRaw
+
+        /** Read-only view of the last olcRTC failure for [DiagnosticExporter]. */
+        fun lastOlcrtcErrorForDiag(): String? = lastOlcrtcError
     }
 
     private fun debugLogVPN(msg: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-        val line = "$ts [VPN] $msg\n"
-        try {
-            val f = java.io.File(filesDir, "redshift_debug.log")
-            f.appendText(line)
-        } catch (_: Exception) {}
-        Log.e("RedShiftVPN", msg)
+        DiagLog.d("RedShiftVPN", msg)
     }
 
     /**
@@ -265,7 +280,14 @@ class RedShiftVpnService : VpnService() {
                     socksPassword = intent.getStringExtra(EXTRA_SOCKS_PASSWORD) ?: ""
                 }
                 Log.e("RedShiftVPN", "Connecting to $remoteHost:$remotePort socksLogin='$socksLogin'")
-                connectVpn()
+                // Runs on the main thread, so anything thrown here (establish() can throw
+                // IllegalArgumentException/SecurityException) would take the whole process
+                // down instead of just failing the attempt.
+                try {
+                    connectVpn()
+                } catch (t: Throwable) {
+                    failConnect(connectGen.get(), "CONNECT ${t::class.simpleName}: ${t.message}")
+                }
             }
             ACTION_CONNECT_AWG -> {
                 val label = intent.getStringExtra(EXTRA_SERVER_LABEL) ?: ""
@@ -287,6 +309,10 @@ class RedShiftVpnService : VpnService() {
 
                 val myGen = connectGen.incrementAndGet()
                 scope.launch(Dispatchers.IO) {
+                    // Throwable, not Exception: a failed attempt must never kill the app.
+                    // Errors that can realistically surface here are UnsatisfiedLinkError
+                    // from the olcRTC native lib and OutOfMemoryError while the room joins;
+                    // both used to escape this handler and crash the process.
                     try {
                         if (olcrtcUri != null) {
                             Log.e("RedShiftVPN", "olcRTC: starting runtime")
@@ -303,8 +329,8 @@ class RedShiftVpnService : VpnService() {
                         splitApps = pendingSplitApps
                         splitAppsOnly = pendingSplitAppsOnly
                         connectTunOnly()
-                    } catch (e: Exception) {
-                        failConnect(myGen, "${e::class.simpleName}: ${e.message}")
+                    } catch (t: Throwable) {
+                        failConnect(myGen, "${t::class.simpleName}: ${t.message}")
                     }
                 }
             }
@@ -388,7 +414,6 @@ class RedShiftVpnService : VpnService() {
         connectGen.incrementAndGet()
         stopOlcrtcRuntime()
         disconnectVpn()
-        shutdownOlcrtcExec()
         stopSelf()
         super.onRevoke()
     }
@@ -399,18 +424,12 @@ class RedShiftVpnService : VpnService() {
         unregisterNetworkCallback()
         stopOlcrtcRuntime()
         disconnectVpn()
-        // shutdown() (not shutdownNow) so the queued stop above still reaches Go and
-        // actually frees 127.0.0.1:8788 for the next session.
-        shutdownOlcrtcExec()
+        // The Go worker thread is process-wide and deliberately NOT shut down here: the
+        // queued stop above still has to reach Go (it frees 127.0.0.1:8788 for the next
+        // session), and the next connect must enter Go on that very same thread anyway
+        // (see OLCRTC_EXEC).
         stopSelf()
         super.onDestroy()
-    }
-
-    private fun shutdownOlcrtcExec() {
-        try {
-            olcrtcExecutor?.shutdown()
-        } catch (_: Exception) {}
-        olcrtcExecutor = null
     }
 
     /**
@@ -486,14 +505,21 @@ class RedShiftVpnService : VpnService() {
                 }
             }).get(OLCRTC_START_HARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
             return ready
-        } catch (e: Exception) {
-            val cause = (e as? java.util.concurrent.ExecutionException)?.cause ?: e
+        } catch (e: java.util.concurrent.ExecutionException) {
+            val cause = e.cause ?: e
             lastOlcrtcError = when (cause) {
                 is java.util.concurrent.TimeoutException ->
                     "комната не ответила за ${OLCRTC_WAIT_MS / 1000} с (сеть)"
                 is OutOfMemoryError -> "не хватило памяти"
                 else -> cause.message ?: cause::class.java.simpleName
             }
+            debugLogVPN("olcRTC runtime error: $lastOlcrtcError")
+            return false
+        } catch (t: Throwable) {
+            // Anything the Go binding throws outside the task itself (permission denied on
+            // the loopback socket, a link error on the native lib, OOM while the room joins)
+            // becomes a normal failed attempt instead of a process crash.
+            lastOlcrtcError = "${t::class.simpleName}: ${t.message}"
             debugLogVPN("olcRTC runtime error: $lastOlcrtcError")
             return false
         } finally {
@@ -553,11 +579,17 @@ class RedShiftVpnService : VpnService() {
         queueOlcrtcStop(rt)
     }
 
-    /** Queues a stop on the Go worker thread; used even for not-yet-published runtimes. */
+    /**
+     * Queues a stop on the Go worker thread; used even for not-yet-published runtimes.
+     *
+     * The old fallback for a refused submit started a *fresh* thread to call into Go, which
+     * is exactly the cross-thread situation gomobile crashes on — and dropping the stop
+     * leaks 127.0.0.1:8788. OLCRTC_EXEC is process-wide and never shut down, so submit
+     * cannot be refused any more and no other thread ever touches the runtime.
+     */
     private fun queueOlcrtcStop(rt: mobile.Runtime) {
-        val exec = olcrtcExec()
         try {
-            exec.submit(Runnable {
+            olcrtcExec().submit(Runnable {
                 try {
                     if (rt.isRunning()) rt.stop(OLCRTC_STOP_MS)
                     debugLogVPN("olcRTC runtime stopped")
@@ -566,17 +598,7 @@ class RedShiftVpnService : VpnService() {
                 }
             })
         } catch (e: Exception) {
-            // The executor was already shut down (service destroyed mid-join). Dropping
-            // the stop here leaks the SOCKS port and the room for the whole process
-            // lifetime — the next connect then fails on "failed to listen on
-            // 127.0.0.1:8788". A one-off worker thread is the lesser evil and this path
-            // only runs during shutdown.
-            debugLogVPN("olcRTC executor refused stop (${e.message}), stopping on a fresh thread")
-            try {
-                Thread({
-                    try { if (rt.isRunning()) rt.stop(OLCRTC_STOP_MS) } catch (_: Exception) {}
-                }, "olcrtc-stop").also { it.isDaemon = true }.start()
-            } catch (_: Exception) {}
+            debugLogVPN("olcRTC stop not queued: $e")
         }
     }
 

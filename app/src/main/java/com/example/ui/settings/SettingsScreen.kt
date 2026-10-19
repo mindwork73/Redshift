@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SdStorage
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
@@ -396,6 +397,16 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 trailingText = RedShiftState.localPort.toString(),
                 leadingIcon = Icons.Filled.Public,
                 showDivider = true
+            )
+            // Same bundle as tapping the version row, but stated outright: a support
+            // request is almost always "here is what my device did", so the export must
+            // be findable without knowing the version row is tappable.
+            ListItem(
+                title = t("share_log"),
+                subtitle = t("share_log_hint"),
+                leadingIcon = Icons.Filled.Share,
+                showDivider = true,
+                onClick = { com.example.service.DiagnosticExporter.share(screenContext) }
             )
             ListItem(
                 title = t("support"),

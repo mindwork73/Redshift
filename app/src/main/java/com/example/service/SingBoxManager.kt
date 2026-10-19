@@ -25,13 +25,7 @@ class SingBoxManager(private val context: Context) {
     }
 
     private fun debugLog(msg: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-        val line = "$ts [SB] $msg\n"
-        try {
-            val f = java.io.File(context.filesDir, "redshift_debug.log")
-            f.appendText(line)
-        } catch (_: Exception) {}
-        Log.e("SingBoxManager", msg)
+        DiagLog.d("SingBoxManager", msg)
     }
 
     fun getConfigPath(): String {

@@ -43,12 +43,9 @@ class TcpTunnel(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private fun tunnelLog(msg: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-        val line = "$ts [TUN$connectionId] $msg\n"
-        try {
-            val f = java.io.File("/data/data/com.aistudio.redshift.rkzvpt/files/redshift_debug.log")
-            f.appendText(line)
-        } catch (_: Exception) {}
+        // Routed through DiagLog: the previous hardcoded /data/data/<pkg> path broke on
+        // any install whose package name differed, so these lines never reached the log.
+        DiagLog.d("TUN$connectionId", msg)
     }    suspend fun connectToRemoteProxy(proxyHost: String, proxyPort: Int, euProxyHost: String, euProxyPort: Int, writer: (ByteArray) -> Unit) {
         if (closed) return
         val dstStr = "${dstIp shr 24 and 0xFF}.${dstIp shr 16 and 0xFF}.${dstIp shr 8 and 0xFF}.${dstIp and 0xFF}"

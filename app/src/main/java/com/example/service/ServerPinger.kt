@@ -22,13 +22,28 @@ object ServerPinger {
     suspend fun ping(server: SubServer): Int = ping(server.address, server.port, server.protocol)
 
     suspend fun ping(host: String, port: Int, protocol: String = ""): Int = withContext(Dispatchers.IO) {
+        // olcRTC rows give us a room URL instead of a host:port, so probing the raw
+        // string never resolved and every olcRTC server ended up with latency -1, which
+        // also kept it out of the auto-select.
+        val (probeHost, probePort) = normalizeTarget(host, port)
         val isUdpProto = isUdpBased(protocol)
 
         if (isUdpProto) {
-            icmpPing(host) ?: tcpPing(host, port) ?: -1
+            icmpPing(probeHost) ?: tcpPing(probeHost, probePort) ?: -1
         } else {
-            tcpPing(host, port) ?: icmpPing(host) ?: -1
+            tcpPing(probeHost, probePort) ?: icmpPing(probeHost) ?: -1
         }
+    }
+
+    /** "https://meet.example.org/room", 0 → "meet.example.org", 443. Anything else is left as is. */
+    private fun normalizeTarget(host: String, port: Int): Pair<String, Int> {
+        val trimmed = host.trim()
+        val https = trimmed.startsWith("https://")
+        if (!https && !trimmed.startsWith("http://")) return host to port
+        val noScheme = trimmed.substringAfter("://")
+        val name = noScheme.substringBefore('/').substringBefore(':')
+        val resolvedPort = if (port > 0) port else if (https) 443 else 80
+        return name to resolvedPort
     }
 
     /**
@@ -38,11 +53,12 @@ object ServerPinger {
      * via proxy"). Uses a SOCKS5 CONNECT handshake and times the full round-trip.
      */
     suspend fun pingViaProxy(host: String, port: Int, protocol: String = "", proxyPort: Int = SingBoxManager.MIXED_PORT): Int {
+        val (probeHost, probePort) = normalizeTarget(host, port)
         val ipHost = try {
-            java.net.InetAddress.getByName(host).hostAddress ?: host
-        } catch (_: Exception) { host }
+            java.net.InetAddress.getByName(probeHost).hostAddress ?: probeHost
+        } catch (_: Exception) { probeHost }
         return withContext(Dispatchers.IO) {
-            solidPing(ipHost, port, proxyPort)
+            solidPing(ipHost, probePort, proxyPort)
         }
     }
 
