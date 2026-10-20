@@ -54,6 +54,16 @@ data class ServerInfo(
     val isEnabled: Boolean
 )
 
+/**
+ * Balancer metric for one region, as returned by GET /api/v1/load.
+ * [active] is -1 when the server could not measure it (ssh to EU down) — callers then
+ * fall back to [devices]; [devices] is how many devices are issued on the region.
+ */
+data class RegionLoad(
+    val active: Int,
+    val devices: Int
+)
+
 class RedPillApiClient(
     private val baseUrl: String = "https://api.redpillcloud.ru",
     private val adminToken: String = ""
@@ -252,6 +262,32 @@ class RedPillApiClient(
                 )
             }
         } catch (_: Exception) { emptyList() }
+    }
+
+    /**
+     * GET /api/v1/load → {"nl": {"active": 41, "devices": 6}, "eu1": {...}}.
+     *
+     * Always degrades to an empty map: the balancer must keep working when
+     * api.redpillcloud.ru is unreachable, it just falls back to ranking by ping.
+     */
+    suspend fun getLoad(): Map<String, RegionLoad> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder().url("$baseUrl/api/v1/load").build()
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return@withContext emptyMap()
+            val json = JSONObject(resp.body!!.string())
+            val out = HashMap<String, RegionLoad>()
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val obj = json.optJSONObject(key) ?: continue
+                out[key] = RegionLoad(
+                    active = obj.optInt("active", -1),
+                    devices = obj.optInt("devices", 0)
+                )
+            }
+            out
+        } catch (_: Exception) { emptyMap() }
     }
 
     private fun parseSubInfo(json: JSONObject): SubInfo {

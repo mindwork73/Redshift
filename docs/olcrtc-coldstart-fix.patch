@@ -1,0 +1,185 @@
+diff --git a/internal/client/link.go b/internal/client/link.go
+index d49d5da..92c0a6a 100644
+--- a/internal/client/link.go
++++ b/internal/client/link.go
+@@ -78,6 +78,16 @@ func (c *Client) bringUpLink(ctx context.Context, cfg Config, cancel context.Can
+ 		}
+ 		return fmt.Errorf("create smux sessions: %w", err)
+ 	}
++	// Wait for the peer to announce before opening the control stream. The
++	// client sends CLIENT_HELLO exactly once and never retransmits it, so if
++	// it races ahead of the server's bridge being open the bridge drops the
++	// HELLO and the handshake can never complete (issues #82/#95). Once the
++	// peer epoch is latched the server endpoint is registered with the bridge
++	// and the HELLO is delivered.
++	if waitErr := waitForPeer(ctx, link); waitErr != nil {
++		_ = pair.Close()
++		return waitErr
++	}
+ 	control, sessionID, peerID, err := openControlStream(ctx, pair.ControlSession, c.deviceID, c.claims)
+ 	if err != nil {
+ 		_ = pair.Close()
+@@ -87,10 +97,6 @@ func (c *Client) bringUpLink(ctx context.Context, cfg Config, cancel context.Can
+ 		_ = pair.Close()
+ 		return err
+ 	}
+-	if waitErr := waitForPeer(ctx, link); waitErr != nil {
+-		_ = pair.Close()
+-		return waitErr
+-	}
+ 	logger.Infof("session %s opened (device=%s)", sessionID, c.deviceID)
+ 	c.sessMu.Lock()
+ 	c.installPairLocked(pair)
+@@ -342,6 +348,15 @@ func (c *Client) tryReopenSession(
+ 		}
+ 		return false
+ 	}
++	// Wait for the peer to re-announce before opening the control stream.
++	// resetLinkPeer cleared the peer epoch on reconnect, so without this the
++	// client's one-shot HELLO re-races the server's bridge being open - the
++	// same handshake-ordering race as the initial connect (issues #82/#95).
++	if waitErr := waitForPeer(ctx, c.ln); waitErr != nil {
++		logger.Warnf("wait for peer on reconnect failed (attempt %d): %v", attempt, waitErr)
++		_ = pair.Close()
++		return false
++	}
+ 	control, sessionID, peerID, err := openControlStreamTimeout(
+ 		ctx, pair.ControlSession, c.deviceID, c.claims, handshake.DefaultTimeout,
+ 	)
+@@ -355,11 +370,6 @@ func (c *Client) tryReopenSession(
+ 		_ = pair.Close()
+ 		return false
+ 	}
+-	if waitErr := waitForPeer(ctx, c.ln); waitErr != nil {
+-		logger.Warnf("wait for peer on reconnect failed (attempt %d): %v", attempt, waitErr)
+-		_ = pair.Close()
+-		return false
+-	}
+ 	logger.Infof("session %s reopened (device=%s)", sessionID, c.deviceID)
+ 	c.sessMu.Lock()
+ 	c.installPairLocked(pair)
+diff --git a/internal/engine/jitsi/epoch.go b/internal/engine/jitsi/epoch.go
+index 288fdd4..dab0be3 100644
+--- a/internal/engine/jitsi/epoch.go
++++ b/internal/engine/jitsi/epoch.go
+@@ -131,12 +131,29 @@ func (s *Session) acceptEpochFrame(payload []byte) ([]byte, bool) {
+ 	senderEpoch, receiverEpoch := frame.senderEpoch, frame.receiverEpoch
+ 
+ 	if s.requireTargetedPeer && s.onPeerData == nil {
++		confirmed := s.peerEpoch.Load()
+ 		if receiverEpoch != s.localEpoch.Load() {
+-			logger.Debugf("jitsi: drop untargeted bridge frame senderEpoch=0x%08x localEpoch=0x%08x",
+-				senderEpoch, s.localEpoch.Load())
+-			return nil, false
++			// Untargeted (broadcast) frame: the sender does not know our
++			// localEpoch yet. Accept it while unlatched (confirmed==0) so
++			// WaitForPeer can latch the peer from its first frame - on cold
++			// start and after every reconnect the peer's first frame is a
++			// broadcast Send(nil). Dropping it wedges WaitForPeer for its
++			// whole timeout ("ping works, no connection"). Once latched, only
++			// broadcasts from the latched sender pass; anything else is a
++			// third-party/ghost.
++			if confirmed != 0 && senderEpoch != confirmed {
++				logger.Debugf("jitsi: drop untargeted bridge frame senderEpoch=0x%08x localEpoch=0x%08x",
++					senderEpoch, s.localEpoch.Load())
++				return nil, false
++			}
++			if confirmed == 0 {
++				s.peerEpoch.Store(senderEpoch)
++			}
++			return frame.body, true
+ 		}
+-		if confirmed := s.peerEpoch.Load(); confirmed != 0 && senderEpoch != confirmed {
++		// Targeted frame for our localEpoch. It proves the bridge is alive but
++		// must not bind the peer before the authenticated welcome confirms it.
++		if confirmed != 0 && senderEpoch != confirmed {
+ 			logger.Debugf("jitsi: drop frame from unauthenticated peer senderEpoch=0x%08x peerEpoch=0x%08x",
+ 				senderEpoch, confirmed)
+ 			return nil, false
+diff --git a/internal/engine/jitsi/jitsi_test.go b/internal/engine/jitsi/jitsi_test.go
+index 54e97c1..5ecfa0e 100644
+--- a/internal/engine/jitsi/jitsi_test.go
++++ b/internal/engine/jitsi/jitsi_test.go
+@@ -387,7 +387,7 @@ func TestReconnectEpochAnnounceWithZeroPeerEpochIsAccepted(t *testing.T) {
+ 	}
+ }
+ 
+-func TestRequireTargetedPeerIgnoresBroadcastUntilConfirmed(t *testing.T) {
++func TestRequireTargetedPeerLatchesPreLatchBroadcastAndGuardsPeer(t *testing.T) {
+ 	var received [][]byte
+ 	sess, err := New(context.Background(), engine.Config{
+ 		URL:                 testHost,
+@@ -408,40 +408,51 @@ func TestRequireTargetedPeerIgnoresBroadcastUntilConfirmed(t *testing.T) {
+ 	}
+ 	js.localEpoch.Store(0x3333)
+ 
+-	foreignBroadcast := makeBridgeFrameForEpoch(t, 0x2222, 0, []byte("CLIENT_HELLO"))
+-	js.deliverBridgeMessage(makeBridgeMessageFrom("clientB", map[string]any{rawFieldKey: foreignBroadcast}), true)
+-	if len(received) != 0 || js.peerEpoch.Load() != 0 {
+-		t.Fatalf("broadcast changed targeted peer state: received=%q peerEpoch=0x%08x",
+-			received, js.peerEpoch.Load())
++	// A targeted frame addressed to us before anything is latched proves the
++	// bridge is alive but must NOT bind the peer: peerEpoch stays 0 until the
++	// authenticated welcome is confirmed via ConfirmPeer.
++	spoof := makeBridgeFrameForEpoch(t, 0x4444, 0x3333, []byte("SPOOF"))
++	js.deliverBridgeMessage(makeBridgeMessageFrom("attacker", map[string]any{rawFieldKey: spoof}), true)
++	if len(received) != 1 || string(received[0]) != "SPOOF" {
++		t.Fatalf("received = %q, want delivered targeted frame", received)
+ 	}
+-
+-	targetedWelcome := makeBridgeFrameForEpoch(t, 0x1111, 0x3333, []byte("SERVER_WELCOME"))
+-	js.deliverBridgeMessage(makeBridgeMessageFrom("server", map[string]any{rawFieldKey: targetedWelcome}), true)
+-	if len(received) != 1 || string(received[0]) != "SERVER_WELCOME" {
+-		t.Fatalf("received = %q, want targeted server welcome", received)
+-	}
+-	if js.peerEpoch.Load() != 0 || js.peerEndpoint.Load() != nil {
+-		t.Fatal("targeted frame bound peer before authenticated welcome confirmation")
++	if got := js.peerEpoch.Load(); got != 0 {
++		t.Fatalf("peerEpoch after pre-latch targeted frame = 0x%08x, want 0", got)
+ 	}
+-	if err := js.ConfirmPeer("00001111"); err != nil {
+-		t.Fatalf("ConfirmPeer() error = %v", err)
++
++	// A broadcast (receiverEpoch==0) while unlatched MUST be accepted and
++	// latch the peer. WaitForPeer blocks on peerEpoch!=0 and the peer's first
++	// frame - on cold start and after every reconnect - is a broadcast
++	// Send(nil), so dropping it here wedges the link (issues #82/#95).
++	welcome := makeBridgeFrameForEpoch(t, 0x1111, 0, []byte("SERVER_WELCOME"))
++	js.deliverBridgeMessage(makeBridgeMessageFrom("server", map[string]any{rawFieldKey: welcome}), true)
++	if len(received) != 2 || string(received[1]) != "SERVER_WELCOME" {
++		t.Fatalf("received = %q, want pre-latch broadcast delivered", received)
+ 	}
+ 	if got := js.peerEpoch.Load(); got != 0x1111 {
+-		t.Fatalf("peerEpoch after confirmation = 0x%08x, want server epoch", got)
++		t.Fatalf("peerEpoch after pre-latch broadcast = 0x%08x, want 0x00001111", got)
+ 	}
+ 
+-	js.deliverBridgeMessage(makeBridgeMessageFrom("clientB", map[string]any{rawFieldKey: foreignBroadcast}), true)
+-	if len(received) != 1 {
+-		t.Fatalf("received after third-party broadcast = %q, want only server welcome", received)
++	// Once latched, a broadcast from a different sender is a third-party
++	// instance or a stale ghost and must be dropped.
++	foreign := makeBridgeFrameForEpoch(t, 0x2222, 0, []byte("CLIENT_HELLO"))
++	js.deliverBridgeMessage(makeBridgeMessageFrom("clientB", map[string]any{rawFieldKey: foreign}), true)
++	if len(received) != 2 {
++		t.Fatalf("received after third-party broadcast = %q, want only prior frames", received)
++	}
++	if got := js.peerEpoch.Load(); got != 0x1111 {
++		t.Fatalf("peerEpoch after third-party broadcast = 0x%08x, want 0x00001111", got)
+ 	}
+ 
++	// Further frames from the latched peer keep flowing, and the peer
++	// endpoint binds to the latched sender.
+ 	more := makeBridgeFrameForEpoch(t, 0x1111, 0x3333, []byte("MORE"))
+ 	js.deliverBridgeMessage(makeBridgeMessageFrom("server", map[string]any{rawFieldKey: more}), true)
+-	if len(received) != 2 || string(received[1]) != "MORE" {
+-		t.Fatalf("received = %q, want server welcome + MORE", received)
++	if len(received) != 3 || string(received[2]) != "MORE" {
++		t.Fatalf("received = %q, want welcome + MORE", received)
+ 	}
+ 	if got := js.peerEndpoint.Load(); got == nil || *got != "server" {
+-		t.Fatalf("peerEndpoint after confirmed frame = %v, want server", got)
++		t.Fatalf("peerEndpoint = %v, want server", got)
+ 	}
+ }
+ 

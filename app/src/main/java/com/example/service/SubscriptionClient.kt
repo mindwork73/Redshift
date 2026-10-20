@@ -63,12 +63,13 @@ class SubscriptionClient {
         .build()
 
     suspend fun fetchSubscription(url: String): SubscriptionResult = withContext(Dispatchers.IO) {
-        if (url.startsWith("vpn://")) {
+        if (url.startsWith("vpn://") || url.startsWith("olcrtc://")) {
             val server = parseProxyUri(url, 0)
+            DiagLog.d("Sub", "single link parsed=${server != null} url=${url.take(120)}")
             return@withContext if (server != null) {
                 SubscriptionResult(url, listOf(server))
             } else {
-                SubscriptionResult(url, emptyList(), "Invalid AmneziaVPN config")
+                SubscriptionResult(url, emptyList(), "Invalid config link")
             }
         }
         try {
@@ -79,6 +80,7 @@ class SubscriptionClient {
 
             val response = client.newCall(request).execute()
             val body = response.body?.string() ?: return@withContext SubscriptionResult(url, emptyList(), "Empty response")
+            DiagLog.d("Sub", "http ${response.code} body=${body.length} url=${url.take(120)}")
 
             val servers = parseSubscriptionBody(body)
             var profileInfo = parseProfileInfoHeader(response)
@@ -109,6 +111,7 @@ class SubscriptionClient {
             }
             SubscriptionResult(url, servers, profileInfo = profileInfo)
         } catch (e: Exception) {
+            DiagLog.d("Sub", "fetch failed ${e::class.simpleName}: ${e.message} url=${url.take(120)}")
             SubscriptionResult(url, emptyList(), e.message ?: "Unknown error")
         }
     }
@@ -240,14 +243,25 @@ class SubscriptionClient {
         val servers = mutableListOf<SubServer>()
 
         val lines = text.lines().filter { it.isNotBlank() }
+        var skipped = 0
 
         for ((index, line) in lines.withIndex()) {
             try {
                 val server = parseProxyUri(line, index)
-                if (server != null) servers.add(server)
-            } catch (_: Exception) {}
+                if (server != null) servers.add(server) else {
+                    skipped++
+                    // Every unparsable line is logged: a missing server in the UI used to
+                    // be indistinguishable from a working one, because the failure was
+                    // swallowed here.
+                    DiagLog.d("Sub", "unparsed line[$index]: ${line.take(160)}")
+                }
+            } catch (e: Exception) {
+                skipped++
+                DiagLog.d("Sub", "line[$index] ${e::class.simpleName}: ${e.message} :: ${line.take(160)}")
+            }
         }
 
+        DiagLog.d("Sub", "parsed=${servers.size} skipped=$skipped lines=${lines.size}")
         return servers
     }
 
@@ -297,6 +311,33 @@ class SubscriptionClient {
     }
 
     private fun parseProxyUri(uri: String, index: Int): SubServer? {
+        // olcrtc:// uses '#' for the encryption key, not for a UI name, so handle it
+        // before the generic extractName / stripFragment logic that would misparse it.
+        if (uri.trimStart().startsWith("olcrtc://")) {
+            val spec = OlcrtcUri.parse(uri)
+            if (spec == null) {
+                DiagLog.d("Sub", "olcrtc parse failed: ${uri.take(200)}")
+                return null
+            }
+            DiagLog.d("Sub", "olcrtc ok: ${spec.provider}/${spec.transport} room=${spec.room} label=${spec.label}")
+            val label = spec.label
+            val flag = when {
+                label.contains("nl", ignoreCase = true) -> "\uD83C\uDDF3\uD83C\uDDF1"
+                label.contains("de", ignoreCase = true) -> "\uD83C\uDDE9\uD83C\uDDEA"
+                label.contains("us", ignoreCase = true) -> "\uD83C\uDDFA\uD83C\uDDF8"
+                label.contains("uk", ignoreCase = true) -> "\uD83C\uDDEC\uD83C\uDDE7"
+                else -> "\uD83C\uDF10"
+            }
+            return SubServer(
+                id = "olcrtc_${Math.abs(uri.hashCode())}",
+                name = label.ifBlank { "${spec.provider}/${spec.transport}" },
+                protocol = "OLCRTC",
+                address = spec.room,
+                port = 0,
+                flag = flag,
+                extra = spec.uri
+            )
+        }
         val name = extractName(uri)
         val cleanUri = stripFragment(uri)
         val parsed = when {

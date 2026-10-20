@@ -2,6 +2,10 @@
 .env
 local.properties
 debug.keystore
+*.jks
+# Signing credentials (never commit; the Temp copy that used to hold these was wiped)
+keystore_creds*.txt
+*keystore*creds*
 
 # Android / Gradle
 *.iml
