@@ -363,7 +363,7 @@ private fun loadCachedServers() {
             val party = byName[nk] ?: continue
             // Prefer the row tied to a real subscription url (current), drop stale url-less artifacts.
             val winner = party.maxWithOrNull(
-                compareBy({ it.optString("url", "").isBlank() }, { it.optString("id", "").isBlank() })
+                compareBy({ it.optString("url", "").isNotBlank() }, { it.optString("id", "").isNotBlank() })
             ) ?: obj
             out.put(winner)
         }
@@ -519,10 +519,10 @@ private fun loadCachedServers() {
         }
         scope.launch {
             store.userId.collect { uid ->
-                if (uid.toIntOrNull() != null) {
+                if (uid.toLongOrNull() != null) {
                     telegramToken = uid
                     isLoggedIn = true
-                    val id = uid.toIntOrNull()
+                    val id = uid.toLongOrNull()
                     if (id != null && userInfo == null) refreshUserData(id)
                 } else if (uid.isNotBlank()) {
                     // Legacy garbage: an old build wrote a full vpn:// deeplink as the
@@ -715,7 +715,7 @@ private fun loadCachedServers() {
     /** "…-nl", "…/eu1…", "RedPill EU" → NL / EU / …, anything else → "". */
     private fun regionTokenIn(text: String): String {
         val m = REGION_TOKEN.find(text) ?: return ""
-        return when (m.value.lowercase(java.util.Locale.US)) {
+        return when (m.groupValues[1].lowercase(java.util.Locale.US)) {
             "nl" -> "NL"
             "eu", "eu1", "de" -> "EU"
             "us" -> "US"
@@ -851,7 +851,7 @@ private fun loadCachedServers() {
                 debugLog("dupe-skip name='${candidate.name}' addr=${candidate.address}:${candidate.port}")
             }
         }
-        debugLog("addFromSub url=${subUrl.take(80)} parsed=${subServers.size} kept=${servers.size}")
+        debugLog("addFromSub parsed=${subServers.size} kept=${servers.size}")
     }
 
     private fun expiresAtToMillis(expiresAt: String?): Long {
@@ -933,7 +933,11 @@ private fun loadCachedServers() {
         val wasActive = selectedServerId == serverId
         val victim = servers.find { it.id == serverId }
         debugLog("remove id=$serverId name='${victim?.name ?: "-"}' wasActive=$wasActive state=$connectionState")
-        victim?.let { hideServer(it) }
+        victim?.let { server ->
+            // Subscription entries need an exclusion because the publisher can send them again.
+            if (server.subscriptionUrl.startsWith("http://") || server.subscriptionUrl.startsWith("https://")) hideServer(server)
+            scope.launch { settingsStore?.removeCachedServer(server.id, server.subExtra) }
+        }
         servers.removeAll { it.id == serverId }
         recentServers.removeAll { it.id == serverId }
         if (wasActive) {
@@ -1034,6 +1038,27 @@ private fun loadCachedServers() {
     }
 
     /** Tears the current session down (generation bump + native stop off the UI thread). */
+    fun disconnectFromSystem() {
+        disconnectVpnInternal()
+    }
+
+    fun onSystemVpnRevoked() {
+        isSwitchingServer = false
+        switchToken++
+        vpnGeneration++
+        connectJob?.cancel()
+        connectJob = null
+        connectionState = ConnectionState.DISCONNECTED
+        lastConfig = ""
+        stopTelemetrySimulation()
+        scope.launch(Dispatchers.IO) { singBoxManager?.stop() }
+    }
+
+    fun updateAutoReconnect(enabled: Boolean) {
+        autoReconnect = enabled
+        scope.launch { settingsStore?.setAutoReconnect(enabled) }
+    }
+
     private fun disconnectVpnInternal() {
         debugLog("disconnect state=$connectionState")
         isSwitchingServer = false
@@ -1119,6 +1144,7 @@ private fun loadCachedServers() {
                 return
             }
             connectionState = ConnectionState.CONNECTING
+            vpnError = null
             Log.e("RedShiftVPN", "Starting VPN connect sequence")
 
             // Mark this connect attempt with the current generation. Any later
@@ -1147,7 +1173,7 @@ private fun loadCachedServers() {
                         return@launch
                     }
 
-                    val candidates = olcrtcFailoverCandidates(first)
+                    val candidates = if (autoSelectBestServer) olcrtcFailoverCandidates(first) else listOf(first)
                     for ((index, candidate) in candidates.withIndex()) {
                         if (gen != vpnGeneration) return@launch
                         if (index > 0) {
@@ -1164,6 +1190,7 @@ private fun loadCachedServers() {
                         settingsStore?.setSelectedServerId(candidate.id)
                         val connected = connectAttempt(candidate, gen) { gen != vpnGeneration || !isActive }
                         if (connected) {
+                            selectedServerId = candidate.id
                             debugLog("connected via ${candidate.name} (attempt ${index + 1}/${candidates.size})")
                             return@launch
                         }
@@ -1252,14 +1279,15 @@ private fun loadCachedServers() {
             }
             putExtra(RedShiftVpnService.EXTRA_NOTIFICATIONS, vpnNotification)
         }
+        RedShiftVpnService.clearStartError()
         appContext?.startService(intent1)
         // Race fix: on some OEMs (vivo) VpnService.Builder.establish() takes
         // ~10s, so poll up to 40s (was 10s) before giving up on the fd.
         // Must run off the main thread — Thread.sleep here would ANR the UI.
         val tunFd = withContext(Dispatchers.IO) {
             var fd = -1
-            for (i in 1..160) {
-                if (isCancelled() || gen != vpnGeneration) break
+            for (i in 1..240) {
+                if (isCancelled() || gen != vpnGeneration || RedShiftVpnService.lastStartError != null) break
                 Thread.sleep(250)
                 fd = RedShiftVpnService.getLastTunFdRaw()
                 if (fd > 0) break
@@ -1274,6 +1302,13 @@ private fun loadCachedServers() {
         if (tunFd <= 0) {
             // TUN fd never arrived — fail-close instead of leaking via mixed SOCKS.
             debugLog("TUN fd not available, fail-close (no mixed fallback)")
+            vpnError = when (RedShiftVpnService.lastFailureCode) {
+                "timeout" -> "timeout"
+                "invalid-profile" -> "invalid-profile"
+                "network-permission" -> "network-permission"
+                "tun-error" -> "tun-error"
+                else -> "engine-error"
+            }
             teardownFailedAttempt()
             return false
         }
@@ -1282,6 +1317,7 @@ private fun loadCachedServers() {
         if (!started) {
             // Fail-close: never fall back to mixed SOCKS (would leak UDP/DNS).
             debugLog("sing-box TUN failed, fail-close (no mixed fallback)")
+            vpnError = "tun-error"
             teardownFailedAttempt()
             return false
         }
@@ -1334,12 +1370,20 @@ private fun loadCachedServers() {
 
                 val cfg = lastConfig
                 if (cfg.isNotBlank() && singBoxManager?.isRunning() != true) {
+                    if (!autoReconnect) {
+                        disconnectVpnInternal()
+                        break
+                    }
                     debugLog("watchdog: sing-box died, restarting")
                     val fd = com.example.service.RedShiftVpnService.getLastTunFdRaw()
                     val ok = if (fd > 0) {
                         kotlinx.coroutines.withContext(Dispatchers.IO) { singBoxManager?.startWithTunFd(cfg, fd) == true }
                     } else false
                     debugLog("watchdog: restart ok=$ok")
+                    if (!ok) {
+                        disconnectVpnInternal()
+                        break
+                    }
                 }
             }
             monitor.stop()
@@ -1374,6 +1418,10 @@ private fun loadCachedServers() {
                 // subscription: adding it must never touch the profile/user id or the
                 // cached server list of an already imported subscription.
 if (isSingleCustomLink) {
+                // Re-importing a directly entered link is an explicit request to add it again.
+                val restored = hiddenServers - result.servers.flatMap { hideKeysForParts(it.id, it.name, it.protocol, it.address, it.port) }.toSet()
+                hiddenServers = restored
+                settingsStore?.setHiddenServers(restored)
                 addServersFromSubResult(result.servers, url)
                 cacheServersToStore(result.servers, url)
                 val first = result.servers.first()
@@ -1424,13 +1472,13 @@ if (isSingleCustomLink) {
                 }
 
                 val userIdFromUrl = url.substringAfterLast("/").substringBefore("?").trim()
-                val numericUserId = userIdFromUrl.toIntOrNull()
-                val usernameId = profile?.username?.trim()?.toIntOrNull()
+                val numericUserId = userIdFromUrl.toLongOrNull()
+                val usernameId = profile?.username?.trim()?.toLongOrNull()
                 if (profile == null || subscriptionPlan.isBlank() || subscriptionExpiry.isBlank() || numericUserId == null) {
                     val resolvedUserId = when {
                         numericUserId != null -> numericUserId
                         usernameId != null -> usernameId
-                        else -> telegramToken.toIntOrNull()
+                        else -> telegramToken.toLongOrNull()
                     }
                     if (resolvedUserId != null) {
                         val user = apiClient.getUser(resolvedUserId)
@@ -1453,7 +1501,7 @@ if (isSingleCustomLink) {
                     settingsStore?.setUserId(if (resolvedUserId != null) resolvedUserId.toString() else userIdFromUrl)
                 } else {
                     // Profile info came back with the subscription: the user is authed.
-                    val resolvedUserId = numericUserId ?: usernameId ?: telegramToken.toIntOrNull()
+                    val resolvedUserId = numericUserId ?: usernameId ?: telegramToken.toLongOrNull()
                     if (resolvedUserId != null) {
                         telegramToken = resolvedUserId.toString()
                         isLoggedIn = true
@@ -1570,7 +1618,7 @@ if (isSingleCustomLink) {
         store.setLastRefreshTime(System.currentTimeMillis())
     }
 
-    fun login(tgId: Int) {
+    fun login(tgId: Long) {
         loginError = null
         isLoadingUser = true
 
@@ -1598,7 +1646,7 @@ if (isSingleCustomLink) {
         }
     }
 
-    fun refreshUserData(tgId: Int) {
+    fun refreshUserData(tgId: Long) {
         if (!isLoggedIn) return
         scope.launch {
             val user = apiClient.getUser(tgId)

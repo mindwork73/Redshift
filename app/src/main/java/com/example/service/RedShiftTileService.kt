@@ -28,10 +28,7 @@ class RedShiftTileService : TileService() {
         super.onClick()
         if (RedShiftVpnService.tunReady) {
             // Live tunnel -> disconnect straight from the tile.
-            startService(
-                Intent(this, RedShiftVpnService::class.java)
-                    .setAction(RedShiftVpnService.ACTION_DISCONNECT)
-            )
+            RedShiftState.disconnectFromSystem()
             updateTile()
             return
         }

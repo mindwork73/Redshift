@@ -15,25 +15,24 @@ import org.junit.Test
  * the room) and the updater's version comparison (a wrong ordering means users never receive
  * the fix).
  *
- * The URI under test is the live one the server hands out, copied verbatim from
- * `/sub/<user>` on NL.
+ * The URI under test is a synthetic Telemost example.
  */
 class OlcrtcSpecTest {
 
-    private val liveUri =
+    private val exampleUri =
         "olcrtc://telemost?vp8channel<vp8-fps=30&vp8-batch=64>@85010346785956" +
-            "#dec77c7e1c4c3d3635f6439e41b6bd30f7c9710262187859ecc2428ee294c130\$NL / Telemost"
+            "#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\$NL / Telemost"
 
     @Test
-    fun parsesTheLiveTelemostUri() {
-        val spec = OlcrtcUri.parse(liveUri)
+    fun parsesTheExampleTelemostUri() {
+        val spec = OlcrtcUri.parse(exampleUri)
 
         assertNotNull("the live server URI must parse", spec)
         assertEquals("telemost", spec!!.provider)
         assertEquals("vp8channel", spec.transport)
         assertEquals("85010346785956", spec.room)
         assertEquals(
-            "dec77c7e1c4c3d3635f6439e41b6bd30f7c9710262187859ecc2428ee294c130",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             spec.key
         )
         assertEquals("NL / Telemost", spec.label)

@@ -15,9 +15,9 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.outlined.PowerSettingsNew
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,9 +45,9 @@ private data class OnboardingSlide(
 )
 
 private val Slides = listOf(
-    OnboardingSlide(Icons.Filled.Shield, "onboarding_1_title", "onboarding_1_desc"),
-    OnboardingSlide(Icons.Filled.Public, "onboarding_2_title", "onboarding_2_desc"),
-    OnboardingSlide(Icons.Filled.PowerSettingsNew, "onboarding_3_title", "onboarding_3_desc")
+    OnboardingSlide(Icons.Outlined.Shield, "onboarding_1_title", "onboarding_1_desc"),
+    OnboardingSlide(Icons.Outlined.Public, "onboarding_2_title", "onboarding_2_desc"),
+    OnboardingSlide(Icons.Outlined.PowerSettingsNew, "onboarding_3_title", "onboarding_3_desc")
 )
 
 /**

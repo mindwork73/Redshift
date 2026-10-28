@@ -1,8 +1,8 @@
 param(
     # Expected release version — bump this (or pass -ExpectedVersion) each release.
-    [string]$ExpectedVersion = "0.3.2",
+    [string]$ExpectedVersion = "0.3.9",
     # Latest already-published release this APK must install over.
-    [string]$LastPublished = "v0.3.1"
+    [string]$LastPublished = "v0.3.6"
 )
 
 $ErrorActionPreference = "Stop"

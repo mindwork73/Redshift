@@ -60,6 +60,12 @@ object UiText {
         // ── Home (§8.1) ──
         "home_not_protected" to mapOf("en" to "Traffic is not protected", "ru" to "Трафик не защищён"),
         "home_vpn_active" to mapOf("en" to "VPN is active", "ru" to "VPN активен"),
+        "vpn_connect_failed" to mapOf("en" to "Connection failed", "ru" to "Не удалось подключиться"),
+        "vpn_error_timeout" to mapOf("en" to "The server did not respond in time", "ru" to "Сервер не ответил вовремя"),
+        "vpn_error_invalid-profile" to mapOf("en" to "Check the server profile", "ru" to "Проверьте ссылку сервера"),
+        "vpn_error_network-permission" to mapOf("en" to "Network access was denied", "ru" to "Нет доступа к сети"),
+        "vpn_error_engine-error" to mapOf("en" to "The VPN engine could not start", "ru" to "Не удалось запустить VPN"),
+        "vpn_error_tun-error" to mapOf("en" to "Could not establish the tunnel", "ru" to "Не удалось создать туннель"),
         "home_vpn_idle" to mapOf("en" to "VPN is off", "ru" to "VPN выключен"),
         "home_vpn_starting" to mapOf("en" to "Establishing a tunnel", "ru" to "Устанавливаем туннель"),
         "session_traffic" to mapOf("en" to "Session traffic", "ru" to "Трафик сессии"),
@@ -77,8 +83,8 @@ object UiText {
         ),
         "delete" to mapOf("en" to "Delete", "ru" to "Удалить"),
         "delete_server_hint" to mapOf(
-            "en" to "Long-press a server to remove it from the list",
-            "ru" to "Долгое нажатие на сервер — удалить его из списка"
+            "en" to "Tap the bin to remove a server",
+            "ru" to "Нажмите корзину, чтобы удалить сервер"
         ),
         "restore_hidden_servers" to mapOf(
             "en" to "Restore deleted servers",

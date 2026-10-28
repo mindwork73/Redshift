@@ -38,31 +38,17 @@ object DiagnosticExporter {
                 w.write("android: ${Build.VERSION.RELEASE} (api ${Build.VERSION.SDK_INT}) ${Build.MANUFACTURER} ${Build.MODEL}\n")
                 w.write("abi: ${Build.SUPPORTED_ABIS.joinToString()}\n")
                 w.write("vpn state: ${com.example.ui.RedShiftState.connectionState}")
-                w.write(" error=${com.example.ui.RedShiftState.vpnError ?: "-"}\n")
+                w.write("\n")
                 w.write("tunReady=${RedShiftVpnService.tunReady} tunFd=${RedShiftVpnService.tunFdRaw}")
-                w.write(" lastStartError=${RedShiftVpnService.lastStartError ?: "-"}\n")
-                w.write("olcrtcError=${RedShiftVpnService.lastOlcrtcErrorForDiag() ?: "-"}\n")
-                // Server-list state: the "subscription shows 2 of 3 servers" report is
-                // answered by whether a row was deleted (hidden) or never parsed.
-                val state = com.example.ui.RedShiftState
-                w.write("servers=${state.servers.size} hidden=${state.hiddenServers.size} keys=${state.hiddenServers}\n")
-                w.write("selected='${state.selectedServerId}' sub=${state.subscriptionUrl.take(120)}\n")
-
-                section(w, "debug log", File(context.filesDir, "redshift_debug.log"))
-                section(w, "sing-box err.txt", File(context.filesDir, "singbox/err.txt"))
-                section(w, "sing-box config.json", File(context.filesDir, "singbox/config.json"))
-
-                val crashDir = File(context.filesDir, "crashes")
-                val crashes = crashDir.listFiles()?.sortedByDescending { it.name }?.take(MAX_CRASHES).orEmpty()
-                w.write("\n================ crashes (${crashes.size} newest) ================\n")
-                if (crashes.isEmpty()) {
-                    w.write("(none)\n")
-                } else {
-                    for (c in crashes) {
-                        w.write("\n---------------- ${c.name} ----------------\n")
-                        w.write(c.readText().take(MAX_LOG_CHARS))
-                    }
-                }
+                w.write("\n")
+                // Raw logs, URLs and tunnel configuration may contain credentials.
+                // Export only a small allowlisted summary.
+                w.write("servers=${com.example.ui.RedShiftState.servers.size}\n")
+                w.write("olcrtc=${if (RedShiftVpnService.tunReady) "tun-ready" else "inactive"}\n")
+                val diag = context.getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE)
+                w.write("last_stage=${diag.getString("stage", "none")}\n")
+                w.write("last_failure=${diag.getString("failure", "none")}\n")
+                w.write("Diagnostic details containing subscription credentials are omitted.\n")
             }
             out
         } catch (e: Exception) {

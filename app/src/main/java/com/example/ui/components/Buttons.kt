@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -82,14 +82,14 @@ fun GradientButton(
                 Icon(
                     imageVector = icon,
                     contentDescription = contentDescription,
-                    tint = if (enabled) Color.White else VpnColors.TextTertiary,
+                    tint = if (enabled) VpnColors.Background else VpnColors.TextTertiary,
                     modifier = Modifier.size(18.dp)
                 )
             }
             Text(
                 text = text,
                 style = RedType.Body.copy(fontWeight = FontWeight.Bold),
-                color = if (enabled) Color.White else VpnColors.TextTertiary
+                color = if (enabled) VpnColors.Background else VpnColors.TextTertiary
             )
         }
     }
@@ -208,7 +208,7 @@ fun PowerButton(
                 )
             } else {
                 Icon(
-                    imageVector = Icons.Filled.PowerSettingsNew,
+                    imageVector = Icons.Outlined.PowerSettingsNew,
                     contentDescription = null,
                     tint = if (state == ConnectionState.CONNECTED) {
                         VpnColors.Success

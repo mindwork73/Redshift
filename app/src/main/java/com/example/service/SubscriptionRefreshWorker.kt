@@ -45,7 +45,7 @@ private fun dedupeServerArray(arr: JSONArray): JSONArray {
         val party = byName[nk] ?: continue
         // Prefer the row tied to a real subscription url (current), drop stale url-less artifacts.
         val winner = party.maxWithOrNull(
-            compareBy({ it.optString("url", "").isBlank() }, { it.optString("id", "").isBlank() })
+            compareBy({ it.optString("url", "").isNotBlank() }, { it.optString("id", "").isNotBlank() })
         ) ?: obj
         out.put(winner)
     }
@@ -65,7 +65,7 @@ class SubscriptionRefreshWorker(
         val client = SubscriptionClient()
         val result = client.fetchSubscription(url)
 
-        if (result.error != null) return Result.retry()
+        if (result.error.isNotEmpty() || result.servers.isEmpty()) return Result.retry()
 
         // Merge: keep servers of other subscriptions (e.g. Amnezia vpn:// nodes),
         // replace only this subscription's cached servers. Dedupe across all urls
@@ -76,7 +76,7 @@ class SubscriptionRefreshWorker(
             val existing = JSONArray(store.getBlockingCachedServersJson())
             for (i in 0 until existing.length()) {
                 val obj = existing.getJSONObject(i)
-                if (obj.optString("url") != url) continue
+                if (obj.optString("url") == url) continue
                 val key = endpointKey(
                     obj.optString("protocol", ""),
                     obj.optString("address", ""),

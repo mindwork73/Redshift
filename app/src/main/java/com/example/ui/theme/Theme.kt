@@ -52,7 +52,7 @@ object RedSize {
 private val DarkColorScheme =
     darkColorScheme(
         primary = Accent,
-        onPrimary = TextPrimary,
+        onPrimary = Background,
         primaryContainer = AccentSoft,
         onPrimaryContainer = TextPrimary,
         secondary = TextSecondary,

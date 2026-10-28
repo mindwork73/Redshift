@@ -12,11 +12,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.outlined.Logout
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -86,11 +86,11 @@ fun ProfileScreen() {
                     )
                 } else {
                     GlassIconButton(
-                        icon = Icons.Filled.Refresh,
+                        icon = Icons.Outlined.Refresh,
                         contentDescription = t("cd_refresh"),
                         enabled = RedShiftState.isLoggedIn,
                         onClick = {
-                            telegramId.toIntOrNull()?.let { id ->
+                            telegramId.toLongOrNull()?.let { id ->
                                 RedShiftState.refreshUserData(id)
                             }
                         }
@@ -115,7 +115,7 @@ fun ProfileScreen() {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Person,
+                        imageVector = Icons.Outlined.Person,
                         contentDescription = null,
                         tint = VpnColors.TextSecondary,
                         modifier = Modifier.size(28.dp)
@@ -170,9 +170,9 @@ fun ProfileScreen() {
             ) {
                 Icon(
                     imageVector = if (isPremiumPlan(plan)) {
-                        Icons.Filled.VerifiedUser
+                        Icons.Outlined.VerifiedUser
                     } else {
-                        Icons.Filled.Shield
+                        Icons.Outlined.Shield
                     },
                     contentDescription = null,
                     tint = if (isPremiumPlan(plan)) {
@@ -222,7 +222,7 @@ fun ProfileScreen() {
             ListItem(
                 title = t("support_bot"),
                 subtitle = SupportBot,
-                leadingIcon = Icons.Filled.Shield,
+                leadingIcon = Icons.Outlined.Shield,
                 showChevron = true,
                 onClick = {
                     val tg = Intent(Intent.ACTION_VIEW, Uri.parse("tg://resolve?domain=redpillcloud_bot"))
@@ -244,7 +244,7 @@ fun ProfileScreen() {
 
         GradientButton(
             text = t("logout"),
-            icon = Icons.Filled.Logout,
+            icon = Icons.Outlined.Logout,
             enabled = RedShiftState.isLoggedIn,
             onClick = { showLogoutDialog = true }
         )

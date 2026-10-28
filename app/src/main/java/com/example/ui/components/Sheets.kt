@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,7 +65,7 @@ fun GlassSheet(
         modifier = modifier,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = RedRadius.XLarge, topEnd = RedRadius.XLarge),
-        containerColor = Color(0xFF0C0C10),
+        containerColor = Color(0xF0192420),
         scrimColor = Color.Black.copy(alpha = 0.6f),
         dragHandle = { BottomSheetDefaults.DragHandle(color = VpnColors.GlassBorderTop) }
     ) {
@@ -130,7 +130,7 @@ fun ImportSubscriptionSheet(
                 isError = importError != null
             )
             GlassIconButton(
-                icon = Icons.Filled.ContentPaste,
+                icon = Icons.Outlined.ContentPaste,
                 contentDescription = t("paste"),
                 onClick = {
                     val text = clipboard.getText()?.text?.trim()
@@ -216,7 +216,7 @@ fun LanguageSheet(
                 }
                 if (isSelected) {
                     Icon(
-                        imageVector = Icons.Filled.Check,
+                        imageVector = Icons.Outlined.Check,
                         contentDescription = null,
                         tint = VpnColors.Accent,
                         modifier = Modifier.size(20.dp)

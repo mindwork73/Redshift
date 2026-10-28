@@ -128,9 +128,17 @@ fun SceneBackdrop(
                 )
             } else {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Brush.verticalGradient(colors = listOf(top, bottom)))
+                    modifier = Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color(0xFF0E1915), Color(0xFF0A100E), Color(0xFF070B0A)))
+                    )
+                )
+                Box(
+                    modifier = Modifier.fillMaxSize().background(
+                        Brush.radialGradient(
+                            colors = listOf(Color(0x343C8A68), Color.Transparent),
+                            center = Offset(40f, 100f), radius = 850f
+                        )
+                    )
                 )
             }
             content()

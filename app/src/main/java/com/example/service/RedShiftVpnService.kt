@@ -129,7 +129,7 @@ class RedShiftVpnService : VpnService() {
          * server side see a peer that keeps vanishing, and every retry started from a
          * worse state.
          */
-        private const val OLCRTC_WAIT_MS = 25000L
+        private const val OLCRTC_WAIT_MS = 45000L
         private const val OLCRTC_STOP_MS = 5000L
 
         /**
@@ -162,6 +162,11 @@ class RedShiftVpnService : VpnService() {
         @Volatile
         var lastStartError: String? = null
             private set
+
+        @Volatile var lastFailureCode: String = "none"
+            private set
+
+        fun clearStartError() { lastStartError = null; lastFailureCode = "none" }
 
         const val ROUTE_NL = 0
         const val ROUTE_DIRECT = 1
@@ -198,6 +203,10 @@ class RedShiftVpnService : VpnService() {
 
         /** Read-only view of the last olcRTC failure for [DiagnosticExporter]. */
         fun lastOlcrtcErrorForDiag(): String? = lastOlcrtcError
+    }
+
+    private fun recordConnectionStage(stage: String) {
+        getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE).edit().putString("stage", stage).apply()
     }
 
     private fun debugLogVPN(msg: String) {
@@ -290,6 +299,8 @@ class RedShiftVpnService : VpnService() {
                 }
             }
             ACTION_CONNECT_AWG -> {
+                recordConnectionStage("service-started")
+                getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE).edit().putString("failure", "none").apply()
                 val label = intent.getStringExtra(EXTRA_SERVER_LABEL) ?: ""
                 val showNotifications = intent.getBooleanExtra(EXTRA_NOTIFICATIONS, true)
                 val pendingSplitApps = intent.getStringArrayExtra(EXTRA_SPLIT_APPS)?.toList() ?: emptyList()
@@ -315,12 +326,14 @@ class RedShiftVpnService : VpnService() {
                     // both used to escape this handler and crash the process.
                     try {
                         if (olcrtcUri != null) {
+                            recordConnectionStage("engine-starting")
                             Log.e("RedShiftVPN", "olcRTC: starting runtime")
                             if (!startOlcrtcRuntime(olcrtcUri, myGen)) {
                                 failConnect(myGen, lastOlcrtcError ?: "olcRTC не подключился")
                                 return@launch
                             }
-                            debugLogVPN("olcRTC runtime ready (SOCKS 127.0.0.1:$OLCRTC_SOCKS_PORT), state=${olcrtcState()}")
+                            recordConnectionStage("engine-ready")
+                            debugLogVPN("Ghostlane mobile runtime ready")
                         }
                         if (connectGen.get() != myGen) {
                             debugLogVPN("connect superseded before TUN, aborting")
@@ -411,6 +424,9 @@ class RedShiftVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            com.example.ui.RedShiftState.onSystemVpnRevoked()
+        }
         connectGen.incrementAndGet()
         stopOlcrtcRuntime()
         disconnectVpn()
@@ -467,8 +483,9 @@ class RedShiftVpnService : VpnService() {
                 // Stable identity per install: the server keys its peer sessions on the
                 // device id, so a fresh UUID per attempt reads as a brand-new device on
                 // every retry (and the server then reaps the previous peer as liveness).
-                rt.setDeviceIDPath(java.io.File(filesDir, "olcrtc_device_id").absolutePath)
-                rt.setProvider(spec.provider)
+                if (spec.deviceId.isNotBlank()) rt.setDeviceID(spec.deviceId)
+                else rt.setDeviceIDPath(java.io.File(filesDir, "olcrtc_device_id").absolutePath)
+                rt.setProvider(if (spec.provider == "jazz") "salutejazz" else spec.provider)
                 rt.setTransport(spec.transport)
                 rt.setRoom(spec.room)
                 rt.setKey(spec.key)
@@ -485,9 +502,7 @@ class RedShiftVpnService : VpnService() {
                 )
                 rt.setProtector(object : mobile.SocketProtector {
                     override fun protect(fd: Long): Boolean =
-                        // Our own app is already excluded from the TUN (addDisallowedApplication),
-                        // so olcrtc sockets always use the real network directly.
-                        true
+                        this@RedShiftVpnService.protect(fd.toInt())
                 })
                 rt.start()
                 // Throws (ErrReadyTimeout) when the room never comes up.
@@ -500,7 +515,7 @@ class RedShiftVpnService : VpnService() {
                 } else {
                     olcrtcRuntime = rt
                     published = true
-                    debugLogVPN("olcRTC runtime ready (${spec.provider}/${spec.transport}, room=${spec.room})")
+                    debugLogVPN("olcRTC runtime ready (${spec.provider}/${spec.transport})")
                     true
                 }
             }).get(OLCRTC_START_HARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
@@ -513,7 +528,7 @@ class RedShiftVpnService : VpnService() {
                 is OutOfMemoryError -> "не хватило памяти"
                 else -> cause.message ?: cause::class.java.simpleName
             }
-            debugLogVPN("olcRTC runtime error: $lastOlcrtcError")
+            debugLogVPN("olcRTC runtime error: ${cause::class.java.simpleName}")
             return false
         } catch (t: Throwable) {
             // Anything the Go binding throws outside the task itself (permission denied on
@@ -565,7 +580,16 @@ class RedShiftVpnService : VpnService() {
         stopOlcrtcRuntime()
         if (connectGen.get() != gen) return
         lastStartError = reason
-        debugLogVPN("connect failed: $reason")
+        val lower = reason.lowercase()
+        lastFailureCode = when {
+            "timeout" in lower || "не ответил" in lower || "timed out" in lower -> "timeout"
+            "permission" in lower || "denied" in lower || "protect" in lower -> "network-permission"
+            "unsupported" in lower || "invalid" in lower -> "invalid-profile"
+            else -> "engine-error"
+        }
+        recordConnectionStage("connection-failed")
+        getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE).edit().putString("failure", lastFailureCode).apply()
+        debugLogVPN("connect failed: $lastFailureCode")
         disconnectVpn()
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             try { stopForeground(true) } catch (_: Exception) {}
@@ -735,6 +759,10 @@ class RedShiftVpnService : VpnService() {
         tunFd = builder.establish()
         if (tunFd == null) {
             debugLogVPN("TUN establish failed for AWG mode")
+            lastStartError = "TUN establish failed"
+            lastFailureCode = "tun-error"
+            recordConnectionStage("connection-failed")
+            getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE).edit().putString("failure", lastFailureCode).apply()
             stopSelf()
             return
         }
@@ -749,6 +777,7 @@ class RedShiftVpnService : VpnService() {
         val cloexecCleared = CloexecNative.clearCloseOnExec(rawFd)
         tunFdRaw = rawFd
         tunReady = true
+        recordConnectionStage("tun-ready")
         debugLogVPN("AWG TUN established, raw fd=$rawFd (cloexec cleared=$cloexecCleared)")
     }
 

@@ -94,13 +94,9 @@ class SubscriptionExpiryReminderWorker(
         }
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                "Subscription reminders",
-                NotificationManager.IMPORTANCE_HIGH
-            )
-        )
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Subscription reminders", NotificationManager.IMPORTANCE_HIGH))
+        }
 
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         val pending = PendingIntent.getActivity(

@@ -159,14 +159,14 @@ private fun rememberGlassChrome(shape: Shape): Modifier {
         .background(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.09f),
-                    Color.White.copy(alpha = 0.05f)
+                    Color(0xFFDAFFED).copy(alpha = 0.105f),
+                    Color(0xFF91D4AF).copy(alpha = 0.035f)
                 )
             ),
             shape = shape
         )
         .border(
-            width = 0.75.dp,
+            width = 0.7.dp,
             brush = Brush.verticalGradient(
                 colors = listOf(VpnColors.GlassBorderTop, VpnColors.GlassBorder)
             ),

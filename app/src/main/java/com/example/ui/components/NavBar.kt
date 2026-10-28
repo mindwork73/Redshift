@@ -16,10 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,6 +67,7 @@ private val BarBottomMargin = 10.dp
  * long translation ("Настройки", "Impostazioni") still fits the 48dp active pill.
  */
 private val TabLabelStyle = TextStyle(
+    fontFamily = com.example.ui.theme.Inter,
     fontSize = 11.sp,
     lineHeight = 14.sp,
     fontWeight = FontWeight.Medium,
@@ -159,10 +161,10 @@ private fun NavItem(
     modifier: Modifier = Modifier
 ) {
     val icon: ImageVector = when (tab) {
-        MainTab.Home -> Icons.Filled.Shield
-        MainTab.Servers -> Icons.Filled.Cloud
-        MainTab.Settings -> Icons.Filled.Settings
-        MainTab.Profile -> Icons.Filled.Person
+        MainTab.Home -> Icons.Outlined.Home
+        MainTab.Servers -> Icons.Outlined.Public
+        MainTab.Settings -> Icons.Outlined.Settings
+        MainTab.Profile -> Icons.Outlined.Person
     }
 
     Box(

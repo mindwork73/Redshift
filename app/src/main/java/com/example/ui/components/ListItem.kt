@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -154,7 +154,7 @@ fun ListItem(
             if (showChevron) {
                 Spacer(Modifier.width(RedSpace.Xs))
                 Icon(
-                    imageVector = Icons.Filled.ChevronRight,
+                    imageVector = Icons.Outlined.ChevronRight,
                     contentDescription = null,
                     tint = VpnColors.TextTertiary,
                     modifier = Modifier.size(20.dp)

@@ -12,9 +12,9 @@ import androidx.compose.ui.graphics.Color
  */
 
 // ─── Scene background ───
-val Background = Color(0xFF050507)
-val BackgroundGradientTop = Color(0xFF0D1117)
-val BackgroundGradientBottom = Color(0xFF050507)
+val Background = Color(0xFF080D0B)
+val BackgroundGradientTop = Color(0xFF102019)
+val BackgroundGradientBottom = Color(0xFF080D0B)
 
 // ─── Glass surfaces ───
 val GlassFill = Color(0x12FFFFFF) // white, alpha 0.07
@@ -28,12 +28,12 @@ val TextSecondary = Color(0xFFA2A2AF)
 val TextTertiary = Color(0xFF6E6E78)
 
 // ─── Accent ("red pill") ───
-val Accent = Color(0xFFFF3B30)
-val AccentSoft = Color(0x24FF3B30) // alpha 0.14
-val AccentDark = Color(0xFFC42B22) // gradient partner of [Accent]
+val Accent = Color(0xFF72F7B5)
+val AccentSoft = Color(0x2472F7B5) // alpha 0.14
+val AccentDark = Color(0xFF258C5B) // gradient partner of [Accent]
 
 // ─── Semantic status ───
-val Success = Color(0xFF30D158)
+val Success = Color(0xFF72F7B5)
 val SuccessSoft = Color(0x2430D158) // alpha 0.14
 val Warning = Color(0xFFFFD60A)
 val WarningSoft = Color(0x24FFD60A) // alpha 0.14
@@ -48,10 +48,10 @@ val Divider = Color(0x14FFFFFF) // white, alpha 0.08
 // The bar is a detached "pill" over the backdrop instead of a docked strip, so it reads
 // as a glass object: darker and less transparent than NavBarFill (content scrolls behind
 // it), hairline white edge, thin glint on the top edge and a soft drop shadow.
-val NavBarFloatingFill = Color(0xF2101013) // #101013, alpha 0.95
+val NavBarFloatingFill = Color(0xED14201A) // #101013, alpha 0.95
 val NavBarFloatingBorder = Color(0x1FFFFFFF) // white, alpha 0.12
 val NavBarFloatingShadow = Color(0x73000000) // black, alpha 0.45
-val NavBarItemActive = Color(0xFF30D158) // == Success, the "connected" green
+val NavBarItemActive = Color(0xFF72F7B5) // == Success, the "connected" green
 val NavBarItemActiveFill = Color(0x2E30D158) // alpha 0.18 — disc fill
 val NavBarItemActiveHalo = Color(0x2430D158) // alpha 0.14 — glow bleeding out of the disc
 val NavBarItemActiveEdge = Color(0x6630D158) // alpha 0.40 — disc rim

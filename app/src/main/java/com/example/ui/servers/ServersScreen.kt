@@ -18,11 +18,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.NetworkPing
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.NetworkPing
+import androidx.compose.material.icons.outlined.Sort
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -114,18 +116,18 @@ fun ServersScreen() {
             title = t("nav_servers"),
             actions = {
                 GlassIconButton(
-                    icon = Icons.Filled.Sort,
+                    icon = Icons.Outlined.Sort,
                     contentDescription = t("cd_sort_by_ping"),
                     onClick = { RedShiftState.setSortByPingEnabled(!RedShiftState.sortByPing) },
                     tint = if (sortByPing) VpnColors.Accent else VpnColors.TextPrimary
                 )
                 GlassIconButton(
-                    icon = Icons.Filled.NetworkPing,
+                    icon = Icons.Outlined.NetworkPing,
                     contentDescription = t("cd_ping_all"),
                     onClick = { RedShiftState.pingAllServers() }
                 )
                 GlassIconButton(
-                    icon = Icons.Filled.Add,
+                    icon = Icons.Outlined.Add,
                     contentDescription = t("add_server_btn"),
                     onClick = { showImportSheet = true }
                 )
@@ -133,6 +135,13 @@ fun ServersScreen() {
         )
 
         Spacer(Modifier.height(RedSpace.L))
+        if (RedShiftState.connectionState == ConnectionState.DISCONNECTED && RedShiftState.vpnError != null) {
+            GlassSurface(modifier = Modifier.fillMaxWidth()) {
+                Text(t("vpn_connect_failed"), style = RedType.BodyMedium, color = VpnColors.Danger)
+                Text(t("vpn_error_${RedShiftState.vpnError}"), style = RedType.Caption, color = VpnColors.TextSecondary)
+            }
+            Spacer(Modifier.height(RedSpace.M))
+        }
 
         if (servers.isEmpty()) {
             EmptyServers(onAddSubscription = { showImportSheet = true })
@@ -250,7 +259,7 @@ private fun EmptyServers(onAddSubscription: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Filled.Cloud,
+                imageVector = Icons.Outlined.Cloud,
                 contentDescription = null,
                 tint = VpnColors.TextTertiary,
                 modifier = Modifier.size(28.dp)
@@ -350,7 +359,7 @@ private fun ServerRow(
                         horizontalArrangement = Arrangement.spacedBy(RedSpace.Xxs)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Check,
+                            imageVector = Icons.Outlined.Check,
                             contentDescription = t("server_active"),
                             tint = VpnColors.Success,
                             modifier = Modifier.size(14.dp)
@@ -364,6 +373,9 @@ private fun ServerRow(
                 } else {
                     PingPill(latencyMs = server.latency)
                 }
+            }
+            IconButton(onClick = onLongClick, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Outlined.Delete, contentDescription = t("delete_server"), tint = VpnColors.TextTertiary, modifier = Modifier.size(19.dp))
             }
         }
 

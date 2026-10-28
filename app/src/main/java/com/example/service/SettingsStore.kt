@@ -142,6 +142,21 @@ class SettingsStore(private val context: Context) {
     suspend fun setSortByPing(value: Boolean) = context.dataStore.edit { it[KEY_SORT_BY_PING] = value }
     suspend fun setHiddenServers(value: Set<String>) = context.dataStore.edit { it[KEY_HIDDEN_SERVERS] = value }
 
+    /** Permanently remove locally cached entries for one server. */
+    suspend fun removeCachedServer(id: String, extra: String) {
+        context.dataStore.edit { prefs ->
+            val old = try { org.json.JSONArray(prefs[KEY_CACHED_SERVERS_JSON] ?: "[]") } catch (_: Exception) { org.json.JSONArray() }
+            val remaining = org.json.JSONArray()
+            for (i in 0 until old.length()) {
+                val item = old.optJSONObject(i) ?: continue
+                if (item.optString("id") == id || (extra.isNotEmpty() && item.optString("extra") == extra)) continue
+                remaining.put(item)
+            }
+            prefs[KEY_CACHED_SERVERS_JSON] = remaining.toString()
+            prefs[KEY_CACHED_SERVERS_COUNT] = remaining.length()
+        }
+    }
+
     fun getBlockingRoutingMode(): String {
         return runBlocking { routingMode.first() }
     }

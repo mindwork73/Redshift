@@ -4,6 +4,8 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.Font
+import com.example.R
 import androidx.compose.ui.unit.sp
 
 /**
@@ -12,10 +14,12 @@ import androidx.compose.ui.unit.sp
  * System font only ([FontFamily.Default]) — an iOS-like stack, no bundled faces.
  * Numeric readouts use tabular figures ("tnum") so the session timer does not jitter.
  */
+val Inter = FontFamily(Font(R.font.inter_variable, FontWeight.Normal))
+
 object RedType {
     /** Session timer on Home: 56sp Light, tabular figures. */
     val Timer = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = Inter,
         fontWeight = FontWeight.Light,
         fontSize = 56.sp,
         lineHeight = 64.sp,
@@ -24,16 +28,16 @@ object RedType {
 
     /** Main screen title: 32sp Bold. */
     val Display = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = Inter,
         fontWeight = FontWeight.Bold,
-        fontSize = 32.sp,
-        lineHeight = 40.sp,
+        fontSize = 30.sp,
+        lineHeight = 38.sp,
         letterSpacing = (-0.4).sp
     )
 
     /** Card titles: 20sp SemiBold. */
     val Title = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = Inter,
         fontWeight = FontWeight.SemiBold,
         fontSize = 20.sp,
         lineHeight = 26.sp
@@ -41,7 +45,7 @@ object RedType {
 
     /** Main text: 16sp Regular. */
     val Body = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = Inter,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 22.sp
@@ -49,7 +53,7 @@ object RedType {
 
     /** Active values / metrics: 15sp Medium. */
     val BodyMedium = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = Inter,
         fontWeight = FontWeight.Medium,
         fontSize = 15.sp,
         lineHeight = 20.sp
@@ -57,7 +61,7 @@ object RedType {
 
     /** Captions, secondary text: 13sp Regular. */
     val Caption = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = Inter,
         fontWeight = FontWeight.Normal,
         fontSize = 13.sp,
         lineHeight = 18.sp
@@ -65,7 +69,7 @@ object RedType {
 
     /** Badges and small caps: 12sp Medium. */
     val CaptionMedium = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = Inter,
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp,

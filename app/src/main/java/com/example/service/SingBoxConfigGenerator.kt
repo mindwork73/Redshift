@@ -50,7 +50,7 @@ class SingBoxConfigGenerator {
         config.put("outbounds", JSONArray().apply {
             put(
                 when {
-                    isOlcrtc -> buildOlcrtcOutbound(cfgServer.id)
+                    isOlcrtc -> buildOlcrtcOutbound(cfgServer)
                     isAwg -> buildAmneziaWgOutbound(cfgServer)
                     else -> buildOutbound(cfgServer)
                 }
@@ -101,9 +101,9 @@ class SingBoxConfigGenerator {
         server.protocol.uppercase().contains("OLCRTC")
 
     /** Everything goes through the local olcRTC SOCKS5 tunnel (127.0.0.1:8788). */
-    private fun buildOlcrtcOutbound(tag: String): JSONObject = JSONObject().apply {
+    private fun buildOlcrtcOutbound(server: SubServer): JSONObject = JSONObject().apply {
         put("type", "socks")
-        put("tag", tag)
+        put("tag", server.id)
         put("server", "127.0.0.1")
         put("server_port", OLCRTC_SOCKS_PORT)
     }
@@ -184,12 +184,12 @@ class SingBoxConfigGenerator {
             .distinct()
         // Routing modes: "global" = everything through the VPN (rules ignored),
         // "direct" = everything direct, "rule" (default) = rules below apply.
-        val useRules = routingMode != "direct"
+        val useRules = routingMode == "rule"
         // Domain rules (split, RU/CN bypass, adblock) can only match a domain if the
         // TUN packet is sniffed for TLS SNI / HTTP Host. Inbound `sniff` field was
         // removed in sing-box 1.13; it is now a non-final route rule action emitted
         // here — otherwise domain-based split tunneling would silently not work.
-        val needSniff = useRules && (normalizedDomains.isNotEmpty() || blockAds || bypassRussia || bypassChina || dnsHijack)
+        val needSniff = dnsHijack || (useRules && (normalizedDomains.isNotEmpty() || blockAds || bypassRussia || bypassChina))
         return JSONObject().apply {
             put("rules", JSONArray().apply {
                 // sniff is a non-final rule action (inbound sniff was removed in

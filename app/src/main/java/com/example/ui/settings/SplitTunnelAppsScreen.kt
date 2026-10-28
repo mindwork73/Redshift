@@ -22,8 +22,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -215,7 +215,7 @@ fun SplitTunnelAppsScreen(onBack: () -> Unit) {
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.Cloud,
+                                    imageVector = Icons.Outlined.Cloud,
                                     contentDescription = null,
                                     tint = VpnColors.TextTertiary,
                                     modifier = Modifier.size(20.dp)
@@ -241,7 +241,7 @@ fun SplitTunnelAppsScreen(onBack: () -> Unit) {
                         }
                         Spacer(Modifier.width(RedSpace.S))
                         Icon(
-                            imageVector = if (checked) Icons.Filled.Check else Icons.Filled.Cloud,
+                            imageVector = if (checked) Icons.Outlined.Check else Icons.Outlined.Cloud,
                             contentDescription = null,
                             tint = if (checked) VpnColors.Success else VpnColors.TextTertiary,
                             modifier = Modifier.size(22.dp)

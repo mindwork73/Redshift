@@ -123,7 +123,7 @@ object UpdateChecker {
      */
     fun installApk(context: Context, apkFile: File): Boolean {
         val pm = context.packageManager
-        if (!pm.canRequestPackageInstalls()) return false
+        if (android.os.Build.VERSION.SDK_INT >= 26 && !pm.canRequestPackageInstalls()) return false
         val uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",

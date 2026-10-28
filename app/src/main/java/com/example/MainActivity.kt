@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    context.registerReceiver(receiver, IntentFilter("com.example.VPN_DISCONNECTED"), Context.RECEIVER_NOT_EXPORTED)
+                    androidx.core.content.ContextCompat.registerReceiver(context, receiver, IntentFilter("com.example.VPN_DISCONNECTED"), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
 
                     onDispose {
                         context.unregisterReceiver(receiver)

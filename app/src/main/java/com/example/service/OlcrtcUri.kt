@@ -15,6 +15,8 @@ data class OlcrtcSpec(
     val room: String,
     val key: String,
     val label: String,
+    val deviceId: String = "",
+    val ghostlane: Boolean = false,
     val vp8Fps: Int = 30,
     val vp8Batch: Int = 64
 )
@@ -23,19 +25,22 @@ object OlcrtcUri {
 
     fun parse(raw: String): OlcrtcSpec? {
         val uri = raw.trim()
-        if (!uri.startsWith("olcrtc://")) return null
+        if (!isOlcrtcUri(uri)) return null
+        val explicitGhostlane = uri.startsWith("ghostlane://")
 
         // label (MIMO) after the last '$'
         val dollarIdx = uri.lastIndexOf('$')
         val label = if (dollarIdx >= 0) uri.substring(dollarIdx + 1).trim() else ""
 
         var rest = if (dollarIdx >= 0) uri.substring(0, dollarIdx) else uri
-        rest = rest.removePrefix("olcrtc://")
+        rest = rest.removePrefix(if (explicitGhostlane) "ghostlane://" else "olcrtc://")
 
         // '#' separates the room from the key
         val hashIdx = rest.indexOf('#')
         if (hashIdx < 0) return null
-        val key = rest.substring(hashIdx + 1).trim()
+        val keyAndDevice = rest.substring(hashIdx + 1).trim()
+        val key = keyAndDevice.substringBefore('%').trim()
+        val deviceId = keyAndDevice.substringAfter('%', "").trim()
         rest = rest.substring(0, hashIdx)
 
         // '@' separates the transport block from the room id
@@ -82,10 +87,12 @@ object OlcrtcUri {
             room = room,
             key = key,
             label = label,
+            deviceId = deviceId,
+            ghostlane = explicitGhostlane || provider == "salutejazz" || provider == "jazz" || label.contains("ghostlane", ignoreCase = true),
             vp8Fps = vp8Fps,
             vp8Batch = vp8Batch
         )
     }
 
-    fun isOlcrtcUri(uri: String): Boolean = uri.trimStart().startsWith("olcrtc://")
+    fun isOlcrtcUri(uri: String): Boolean = uri.trimStart().let { it.startsWith("olcrtc://") || it.startsWith("ghostlane://") }
 }
