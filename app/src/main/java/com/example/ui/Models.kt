@@ -320,7 +320,7 @@ private fun loadCachedServers() {
                             debugLog("cache hidden-skip name='${candidate.name}' addr=${candidate.address}:${candidate.port}")
                             continue
                         }
-                        if (servers.any { it.id == candidate.id || it.sameEndpointAs(candidate) || it.sameNamedAs(candidate) }) continue
+                        if (servers.any { it.id == candidate.id || (it.subscriptionUrl == candidate.subscriptionUrl && (it.sameEndpointAs(candidate) || it.sameNamedAs(candidate))) }) continue
                         servers.add(candidate)
                         loaded++
                     }
@@ -348,7 +348,7 @@ private fun loadCachedServers() {
                 obj.optString("address", ""),
                 obj.optInt("port", 0)
             )
-            if (key != null && !seenEndpoint.add(key)) continue
+            if (key != null && !seenEndpoint.add(obj.optString("url", "") + "|" + key)) continue
             survivors.add(obj)
         }
         val byName = LinkedHashMap<String, MutableList<org.json.JSONObject>>()
@@ -373,7 +373,7 @@ private fun loadCachedServers() {
     private fun nameKey(obj: org.json.JSONObject): String {
         val name = obj.optString("name", "").uppercase().trim().filter { it.isLetterOrDigit() || it == ' ' }.trim()
         val protoFamily = obj.optString("protocol", "").uppercase().substringBefore('+').trim()
-        return "$protoFamily::$name"
+        return obj.optString("url", "") + "|$protoFamily::$name"
     }
 
     private fun endpointKey(protocol: String, address: String, port: Int): String? {
@@ -802,7 +802,7 @@ private fun loadCachedServers() {
                 val region = deriveRegionFromAddress(sub.address)
                 name = "$name ($region)"
             }
-            val flag = if (sub.flag == "рџЊђ" || sub.flag.isEmpty()) {
+            val flag = if (sub.flag == "🌐" || sub.flag == "🌍" || sub.flag.isEmpty()) {
                 val regionFlag = flagFromRegion(deriveRegionFromAddress(sub.address))
                 regionFlag.ifEmpty { sub.flag }
             } else sub.flag
@@ -845,7 +845,7 @@ private fun loadCachedServers() {
             }
             // Dedupe by id, endpoint and logical name: the whitelist subscription
             // refreshes with new ids/IPs, which used to double entire servers.
-            if (servers.none { it.id == id || it.sameEndpointAs(candidate) || it.sameNamedAs(candidate) }) {
+            if (servers.none { it.id == id || (it.subscriptionUrl == candidate.subscriptionUrl && (it.sameEndpointAs(candidate) || it.sameNamedAs(candidate))) }) {
                 servers.add(candidate)
             } else {
                 debugLog("dupe-skip name='${candidate.name}' addr=${candidate.address}:${candidate.port}")
@@ -878,14 +878,33 @@ private fun loadCachedServers() {
         }
     }
 
-    private fun flagFromRegion(region: String): String = when (region) {
-        "NL" -> "рџ‡ірџ‡±"
-        "EU" -> "рџ‡Єрџ‡є"
-        "US" -> "рџ‡єрџ‡ё"
-        "UK" -> "рџ‡¬рџ‡§"
-        "SG" -> "рџ‡ёрџ‡¬"
-        "DE" -> "рџ‡©рџ‡Є"
-        else -> ""
+    private fun flagFromRegion(region: String): String = SubscriptionClient.flagForRegion(region)
+
+    fun serverFlag(server: Server?): String {
+        if (server == null) return ""
+        if (server.flag.codePoints().filter { it in 0x1F1E6..0x1F1FF }.count() == 2L) return server.flag
+        val codepoints = server.name.codePoints().toArray()
+        for (i in 0 until codepoints.size - 1) {
+            if (codepoints[i] in 0x1F1E6..0x1F1FF && codepoints[i + 1] in 0x1F1E6..0x1F1FF) {
+                return String(Character.toChars(codepoints[i])) + String(Character.toChars(codepoints[i + 1]))
+            }
+        }
+        val name = server.name.lowercase(java.util.Locale.ROOT)
+        val regions = listOf(
+            "RU" to listOf("ru", "russia", "росси", "москв"),
+            "NL" to listOf("nl", "netherlands", "нидерланд", "амстердам"),
+            "DE" to listOf("de", "germany", "герман", "франкфурт"),
+            "US" to listOf("us", "usa", "united states", "сша"),
+            "UK" to listOf("uk", "gb", "britain", "великобрит"),
+            "MD" to listOf("md", "moldova", "молдов"),
+            "TR" to listOf("tr", "turkey", "турци"),
+            "SG" to listOf("sg", "singapore", "сингапур")
+        )
+        val region = regions.firstOrNull { (_, aliases) -> aliases.any { alias ->
+            if (alias.length == 2) Regex("(?<![a-z])" + alias + "(?![a-z])").containsMatchIn(name)
+            else name.contains(alias)
+        } }?.first ?: SubscriptionClient.deriveRegionFromAddress(server.address)
+        return flagFromRegion(region)
     }
 
     fun getSelectedServer(): Server? {
@@ -1591,14 +1610,14 @@ if (isSingleCustomLink) {
                     obj.optString("address", ""),
                     obj.optInt("port", 0)
                 )
-                if (key != null && !seen.add(key)) continue
+                if (key != null && !seen.add(obj.optString("url", "") + "|" + key)) continue
                 serversJson.put(obj)
             }
         } catch (_: Exception) {}
         for (s in serverList) {
             if (hideKeysForParts(s.id, s.name, s.protocol, s.address, s.port).any { it in hidden }) continue
             val key = endpointKey(s.protocol, s.address, s.port)
-            if (key != null && !seen.add(key)) continue
+            if (key != null && !seen.add(subUrl + "|" + key)) continue
             serversJson.put(org.json.JSONObject().apply {
                 put("id", s.id)
                 put("name", s.name)

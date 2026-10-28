@@ -308,7 +308,7 @@ private fun ServerRow(
                 .padding(horizontal = RedSpace.M, vertical = RedSpace.S),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            com.example.ui.components.ServerIcon(active = isActive)
+            com.example.ui.components.ServerIcon(active = isActive, flag = RedShiftState.serverFlag(server))
             Spacer(Modifier.width(RedSpace.S))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

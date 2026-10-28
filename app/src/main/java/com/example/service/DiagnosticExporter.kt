@@ -46,6 +46,7 @@ object DiagnosticExporter {
                 w.write("servers=${com.example.ui.RedShiftState.servers.size}\n")
                 w.write("olcrtc=${if (RedShiftVpnService.tunReady) "tun-ready" else "inactive"}\n")
                 val diag = context.getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE)
+                w.write("provider=${diag.getString("provider", "none")} transport=${diag.getString("transport", "none")}\n")
                 w.write("last_stage=${diag.getString("stage", "none")}\n")
                 w.write("last_failure=${diag.getString("failure", "none")}\n")
                 w.write("Diagnostic details containing subscription credentials are omitted.\n")

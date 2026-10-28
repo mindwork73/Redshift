@@ -15,7 +15,7 @@ Get-Content $credsFile | ForEach-Object {
 
 if (-not $creds['store']) { Write-Error "store password missing" }
 
-$env:APP_VERSION = if ($args.Count -gt 0) { $args[0] } else { "0.3.10" }
+$env:APP_VERSION = if ($args.Count -gt 0) { $args[0] } else { "0.3.11" }
 $env:KEYSTORE_PATH = if ($creds['storefile']) { $creds['storefile'] } else { "D:\rd3\my-upload-key.jks" }
 $env:STORE_PASSWORD = $creds['store']
 $env:KEY_PASSWORD = if ($creds['key']) { $creds['key'] } else { $creds['store'] }

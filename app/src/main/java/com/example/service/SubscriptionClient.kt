@@ -74,7 +74,7 @@ class SubscriptionClient {
         }
         try {
             val request = Request.Builder()
-                .url(url)
+                .url(normalizeSubscriptionUrl(url))
                 .header("User-Agent", "RedShift/1.0")
                 .build()
 
@@ -200,11 +200,21 @@ class SubscriptionClient {
     private fun parseSubscriptionBody(body: String): List<SubServer> {
         val trimmed = body.trim()
 
-        if (trimmed.startsWith("{")) {
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
             return parseJsonSubscription(trimmed)
         }
-
-        return parsePlainTextSubscription(trimmed)
+        val plain = parsePlainTextSubscription(trimmed)
+        if (plain.isNotEmpty()) return plain
+        // Many subscription providers return an entire newline-separated list as
+        // Base64 (with optional URL-safe alphabet and missing padding).
+        val decoded = try {
+            val compact = trimmed.filterNot { it.isWhitespace() }
+            val bytes = try { android.util.Base64.decode(compact, android.util.Base64.DEFAULT) }
+                catch (_: IllegalArgumentException) { android.util.Base64.decode(compact, android.util.Base64.URL_SAFE) }
+            bytes.toString(Charsets.UTF_8).trim()
+        } catch (_: IllegalArgumentException) { return emptyList() }
+        return if (decoded.startsWith("[") || decoded.startsWith("{"))
+            parseJsonSubscription(decoded) else parsePlainTextSubscription(decoded)
     }
 
     private fun parseJsonSubscription(json: String): List<SubServer> {
@@ -281,6 +291,11 @@ class SubscriptionClient {
     }
 
     companion object {
+        // The apex host does not currently serve subscription HTTPS; the www host
+        // serves the same paths. Keep the original URL as the subscription identity.
+        fun normalizeSubscriptionUrl(url: String): String =
+            url.replace(Regex("^https://redpillcloud\\.ru(?=/|$)", RegexOption.IGNORE_CASE), "https://www.redpillcloud.ru")
+
         fun deriveRegionFromAddress(address: String): String {
             val ip = address.trim()
             return when {
@@ -299,6 +314,7 @@ class SubscriptionClient {
         }
 
         fun flagForRegion(region: String): String = when (region) {
+            "RU" -> "\uD83C\uDDF7\uD83C\uDDFA"
             "NL" -> "\uD83C\uDDF3\uD83C\uDDF1"
             "EU" -> "\uD83C\uDDEA\uD83C\uDDFA"
             "US" -> "\uD83C\uDDFA\uD83C\uDDF8"

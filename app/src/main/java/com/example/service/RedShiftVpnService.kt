@@ -300,7 +300,7 @@ class RedShiftVpnService : VpnService() {
             }
             ACTION_CONNECT_AWG -> {
                 recordConnectionStage("service-started")
-                getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE).edit().putString("failure", "none").apply()
+                getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE).edit().putString("failure", "none").remove("provider").remove("transport").apply()
                 val label = intent.getStringExtra(EXTRA_SERVER_LABEL) ?: ""
                 val showNotifications = intent.getBooleanExtra(EXTRA_NOTIFICATIONS, true)
                 val pendingSplitApps = intent.getStringArrayExtra(EXTRA_SPLIT_APPS)?.toList() ?: emptyList()
@@ -468,6 +468,10 @@ class RedShiftVpnService : VpnService() {
             lastOlcrtcError = "не удалось разобрать olcrtc:// ссылку"
             return false
         }
+        getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE).edit()
+            .putString("provider", spec.provider.takeIf { it in setOf("jitsi", "salutejazz", "jazz", "telemost") } ?: "other")
+            .putString("transport", spec.transport.takeIf { it in setOf("datachannel", "vp8channel") } ?: "other")
+            .apply()
         val myOlcGen = olcrtcGen.incrementAndGet()
         var startedRt: mobile.Runtime? = null
         var published = false
@@ -504,7 +508,9 @@ class RedShiftVpnService : VpnService() {
                     override fun protect(fd: Long): Boolean =
                         this@RedShiftVpnService.protect(fd.toInt())
                 })
+                recordConnectionStage("engine-start-call")
                 rt.start()
+                recordConnectionStage("engine-waiting-room")
                 // Throws (ErrReadyTimeout) when the room never comes up.
                 rt.waitReady(OLCRTC_WAIT_MS)
                 if (olcrtcGen.get() != myOlcGen || connectGen.get() != gen) {
@@ -531,6 +537,7 @@ class RedShiftVpnService : VpnService() {
             debugLogVPN("olcRTC runtime error: ${cause::class.java.simpleName}")
             return false
         } catch (t: Throwable) {
+            if (t is java.util.concurrent.TimeoutException) olcrtcGen.compareAndSet(myOlcGen, myOlcGen + 1)
             // Anything the Go binding throws outside the task itself (permission denied on
             // the loopback socket, a link error on the native lib, OOM while the room joins)
             // becomes a normal failed attempt instead of a process crash.

@@ -62,7 +62,7 @@ fun HomeScreen(onOpenServers: () -> Unit) {
             }
             Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0xE51A201D)).border(1.dp, Color.White.copy(alpha=.08f), RoundedCornerShape(18.dp)).clickable { onOpenServers() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                com.example.ui.components.ServerIcon(active = state == ConnectionState.CONNECTED)
+                com.example.ui.components.ServerIcon(active = state == ConnectionState.CONNECTED, flag = RedShiftState.serverFlag(server))
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(t("nav_servers").uppercase(), color = muted, fontSize = 9.sp, letterSpacing = 1.5.sp)

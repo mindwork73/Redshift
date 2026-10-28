@@ -36,6 +36,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.RedRadius
 import com.example.ui.theme.RedSpace
@@ -197,15 +198,19 @@ private fun BoxScope.GlassGlint(visible: Boolean) {
 
 /** Line icon for locations, shared by the home card and server list. */
 @Composable
-fun ServerIcon(active: Boolean, modifier: Modifier = Modifier) {
+fun ServerIcon(active: Boolean, flag: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier.size(38.dp).clip(RoundedCornerShape(13.dp))
             .background(if (active) VpnColors.SuccessSoft else VpnColors.GlassFillStrong)
             .border(0.7.dp, VpnColors.GlassBorder, RoundedCornerShape(13.dp)),
         contentAlignment = Alignment.Center
     ) {
-        Icon(com.example.ui.icons.AppIcons.ServerPin, contentDescription = null,
-            tint = if (active) VpnColors.Success else VpnColors.TextSecondary,
-            modifier = Modifier.size(20.dp))
+        if (flag.codePoints().filter { it in 0x1F1E6..0x1F1FF }.count() == 2L) {
+            androidx.compose.material3.Text(flag, fontSize = 23.sp, maxLines = 1)
+        } else {
+            Icon(com.example.ui.icons.AppIcons.ServerPin, contentDescription = null,
+                tint = if (active) VpnColors.Success else VpnColors.TextSecondary,
+                modifier = Modifier.size(20.dp))
+        }
     }
 }

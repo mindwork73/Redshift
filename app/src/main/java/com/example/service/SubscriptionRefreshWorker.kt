@@ -16,7 +16,7 @@ private fun endpointKey(protocol: String, address: String, port: Int): String? {
 private fun nameKey(obj: JSONObject): String {
     val name = obj.optString("name", "").uppercase().trim().filter { it.isLetterOrDigit() || it == ' ' }.trim()
     val protoFamily = obj.optString("protocol", "").uppercase().substringBefore('+').trim()
-    return "$protoFamily::$name"
+    return obj.optString("url", "") + "|$protoFamily::$name"
 }
 
 /** Dedupe by exact endpoint, then by logical node name (same name = rotated/regenerated node). */
@@ -30,7 +30,7 @@ private fun dedupeServerArray(arr: JSONArray): JSONArray {
             obj.optString("address", ""),
             obj.optInt("port", 0)
         )
-        if (key != null && !seenEndpoint.add(key)) continue
+        if (key != null && !seenEndpoint.add(obj.optString("url", "") + "|" + key)) continue
         survivors.add(obj)
     }
     val byName = LinkedHashMap<String, MutableList<JSONObject>>()
@@ -82,14 +82,14 @@ class SubscriptionRefreshWorker(
                     obj.optString("address", ""),
                     obj.optInt("port", 0)
                 )
-                if (key != null && !seen.add(key)) continue
+                if (key != null && !seen.add(obj.optString("url", "") + "|" + key)) continue
                 serversJson.put(obj)
             }
         } catch (_: Exception) {}
 
         for (server in result.servers) {
             val key = endpointKey(server.protocol, server.address, server.port)
-            if (key != null && !seen.add(key)) continue
+            if (key != null && !seen.add(url + "|" + key)) continue
             serversJson.put(JSONObject().apply {
                 put("id", server.id)
                 put("name", server.name)
