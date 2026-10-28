@@ -3,6 +3,7 @@ package com.example.ui.settings
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import com.example.ui.icons.AppIcons
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,10 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -111,7 +108,7 @@ fun SplitTunnelAppsScreen(onBack: () -> Unit) {
             title = t("split_apps_title"),
             actions = {
                 GlassIconButton(
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    icon = AppIcons.ArrowBack,
                     contentDescription = t("cd_back"),
                     onClick = onBack
                 )
@@ -215,7 +212,7 @@ fun SplitTunnelAppsScreen(onBack: () -> Unit) {
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Cloud,
+                                    imageVector = AppIcons.Cloud,
                                     contentDescription = null,
                                     tint = VpnColors.TextTertiary,
                                     modifier = Modifier.size(20.dp)
@@ -241,7 +238,7 @@ fun SplitTunnelAppsScreen(onBack: () -> Unit) {
                         }
                         Spacer(Modifier.width(RedSpace.S))
                         Icon(
-                            imageVector = if (checked) Icons.Outlined.Check else Icons.Outlined.Cloud,
+                            imageVector = if (checked) AppIcons.Check else AppIcons.Cloud,
                             contentDescription = null,
                             tint = if (checked) VpnColors.Success else VpnColors.TextTertiary,
                             modifier = Modifier.size(22.dp)

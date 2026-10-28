@@ -1,5 +1,6 @@
 package com.example.ui.profile
 
+import com.example.ui.icons.AppIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,12 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Logout
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Shield
-import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -86,7 +81,7 @@ fun ProfileScreen() {
                     )
                 } else {
                     GlassIconButton(
-                        icon = Icons.Outlined.Refresh,
+                        icon = AppIcons.Refresh,
                         contentDescription = t("cd_refresh"),
                         enabled = RedShiftState.isLoggedIn,
                         onClick = {
@@ -115,7 +110,7 @@ fun ProfileScreen() {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Person,
+                        imageVector = AppIcons.Person,
                         contentDescription = null,
                         tint = VpnColors.TextSecondary,
                         modifier = Modifier.size(28.dp)
@@ -170,9 +165,9 @@ fun ProfileScreen() {
             ) {
                 Icon(
                     imageVector = if (isPremiumPlan(plan)) {
-                        Icons.Outlined.VerifiedUser
+                        AppIcons.VerifiedUser
                     } else {
-                        Icons.Outlined.Shield
+                        AppIcons.Shield
                     },
                     contentDescription = null,
                     tint = if (isPremiumPlan(plan)) {
@@ -222,7 +217,7 @@ fun ProfileScreen() {
             ListItem(
                 title = t("support_bot"),
                 subtitle = SupportBot,
-                leadingIcon = Icons.Outlined.Shield,
+                leadingIcon = AppIcons.Shield,
                 showChevron = true,
                 onClick = {
                     val tg = Intent(Intent.ACTION_VIEW, Uri.parse("tg://resolve?domain=redpillcloud_bot"))
@@ -244,7 +239,7 @@ fun ProfileScreen() {
 
         GradientButton(
             text = t("logout"),
-            icon = Icons.Outlined.Logout,
+            icon = AppIcons.Logout,
             enabled = RedShiftState.isLoggedIn,
             onClick = { showLogoutDialog = true }
         )

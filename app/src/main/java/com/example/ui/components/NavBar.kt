@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import com.example.ui.icons.AppIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,12 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -161,10 +156,10 @@ private fun NavItem(
     modifier: Modifier = Modifier
 ) {
     val icon: ImageVector = when (tab) {
-        MainTab.Home -> Icons.Outlined.Home
-        MainTab.Servers -> Icons.Outlined.Public
-        MainTab.Settings -> Icons.Outlined.Settings
-        MainTab.Profile -> Icons.Outlined.Person
+        MainTab.Home -> AppIcons.Home
+        MainTab.Servers -> AppIcons.Public
+        MainTab.Settings -> AppIcons.Settings
+        MainTab.Profile -> AppIcons.Person
     }
 
     Box(

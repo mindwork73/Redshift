@@ -107,7 +107,7 @@ class SubscriptionExpiryReminderWorker(
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(com.example.R.drawable.ic_redshift_tile)
             .setContentTitle(if (isRu()) "RedShift: подписка" else "RedShift: subscription")
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))

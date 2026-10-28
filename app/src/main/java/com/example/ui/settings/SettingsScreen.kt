@@ -2,6 +2,7 @@ package com.example.ui.settings
 
 import android.content.Intent
 import android.net.Uri
+import com.example.ui.icons.AppIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,20 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.DataUsage
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.NetworkPing
-import androidx.compose.material.icons.outlined.PowerSettingsNew
-import androidx.compose.material.icons.outlined.Public
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.SdStorage
-import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material.icons.outlined.Shield
-import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -118,7 +105,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 } else {
                     RedShiftState.subscriptionPlan
                 },
-                leadingIcon = Icons.Outlined.Cloud,
+                leadingIcon = AppIcons.Cloud,
                 showChevron = true,
                 showDivider = true,
                 onClick = { showSubscriptionSheet = true }
@@ -126,7 +113,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
             ListItem(
                 title = t("import_title"),
                 subtitle = t("import_hint"),
-                leadingIcon = Icons.Outlined.SdStorage,
+                leadingIcon = AppIcons.SdStorage,
                 showChevron = true,
                 onClick = { showImportSheet = true }
             )
@@ -145,14 +132,14 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 title = t("auto_reconnect"),
                 checked = RedShiftState.autoReconnect,
                 onCheckedChange = { RedShiftState.updateAutoReconnect(it) },
-                leadingIcon = Icons.Outlined.Refresh,
+                leadingIcon = AppIcons.Refresh,
                 showDivider = true
             )
             ToggleRow(
                 title = t("notifications"),
                 checked = RedShiftState.vpnNotification,
                 onCheckedChange = { RedShiftState.vpnNotification = it },
-                leadingIcon = Icons.Outlined.Notifications
+                leadingIcon = AppIcons.Notifications
             )
         }
 
@@ -199,14 +186,14 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 subtitle = t("block_ads_desc"),
                 checked = RedShiftState.blockAds,
                 onCheckedChange = { RedShiftState.applyBlockAds(it) },
-                leadingIcon = Icons.Outlined.Shield
+                leadingIcon = AppIcons.Shield
             )
             ToggleRow(
                 title = t("auto_select_best"),
                 subtitle = t("auto_select_best_desc"),
                 checked = RedShiftState.autoSelectBestServer,
                 onCheckedChange = { RedShiftState.setAutoSelectBest(it) },
-                leadingIcon = Icons.Outlined.NetworkPing,
+                leadingIcon = AppIcons.NetworkPing,
                 showDivider = false
             )
         }
@@ -225,7 +212,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 subtitle = t("split_tunnel_desc"),
                 checked = RedShiftState.splitTunnelEnabled,
                 onCheckedChange = { RedShiftState.setSplitEnabled(it) },
-                leadingIcon = Icons.Outlined.Lock,
+                leadingIcon = AppIcons.Lock,
                 checkedTrackColor = VpnColors.Success,
                 showDivider = RedShiftState.splitTunnelEnabled
             )
@@ -278,7 +265,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
             ListItem(
                 title = t("language"),
                 subtitle = LocalizationState.currentLanguage.nativeName,
-                leadingIcon = Icons.Outlined.Public,
+                leadingIcon = AppIcons.Public,
                 showChevron = true,
                 onClick = { showLanguageSheet = true }
             )
@@ -323,13 +310,13 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 } else {
                     t("never")
                 },
-                leadingIcon = Icons.Outlined.Refresh,
+                leadingIcon = AppIcons.Refresh,
                 showDivider = true
             )
             ListItem(
                 title = t("cached_servers"),
                 trailingText = RedShiftState.cachedServerCount.toString(),
-                leadingIcon = Icons.Outlined.SdStorage
+                leadingIcon = AppIcons.SdStorage
             )
         }
 
@@ -344,7 +331,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
         ) {
             ListItem(
                 title = t("reset_cache"),
-                leadingIcon = Icons.Outlined.DataUsage,
+                leadingIcon = AppIcons.DataUsage,
                 titleColor = VpnColors.Danger,
                 onClick = { showResetDialog = true }
             )
@@ -366,7 +353,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 title = t("version"),
                 subtitle = t("share_log_hint"),
                 trailingText = BuildConfig.VERSION_NAME,
-                leadingIcon = Icons.Outlined.Info,
+                leadingIcon = AppIcons.Info,
                 showDivider = true,
                 onClick = { com.example.service.DiagnosticExporter.share(screenContext) }
             )
@@ -377,7 +364,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                     RedShiftState.updateCheckError == "up_to_date" -> t("up_to_date")
                     else -> ""
                 },
-                leadingIcon = Icons.Outlined.Refresh,
+                leadingIcon = AppIcons.Refresh,
                 showDivider = true,
                 onClick = {
                     if (!RedShiftState.isCheckingUpdate) {
@@ -388,7 +375,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
             ListItem(
                 title = t("local_port"),
                 trailingText = RedShiftState.localPort.toString(),
-                leadingIcon = Icons.Outlined.Public,
+                leadingIcon = AppIcons.Public,
                 showDivider = true
             )
             // Same bundle as tapping the version row, but stated outright: a support
@@ -397,14 +384,14 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
             ListItem(
                 title = t("share_log"),
                 subtitle = t("share_log_hint"),
-                leadingIcon = Icons.Outlined.Share,
+                leadingIcon = AppIcons.Share,
                 showDivider = true,
                 onClick = { com.example.service.DiagnosticExporter.share(screenContext) }
             )
             ListItem(
                 title = t("support"),
                 subtitle = SupportBot,
-                leadingIcon = Icons.Outlined.VerifiedUser,
+                leadingIcon = AppIcons.VerifiedUser,
                 showChevron = true,
                 onClick = { openSupportBot(screenContext) }
             )

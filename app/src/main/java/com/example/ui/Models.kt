@@ -1397,18 +1397,22 @@ private fun loadCachedServers() {
         sessionDurationSeconds = 0L
     }
 
+    private var importGeneration = 0L
+
     fun importSubscription(url: String) {
-        if (url.isBlank()) return
+        if (url.isBlank() || isImporting) return
+        val generation = ++importGeneration
         isImporting = true
         importError = null
 
         scope.launch {
+          try {
             val client = SubscriptionClient()
             val result = client.fetchSubscription(url)
 
             if (result.error.isNotEmpty()) {
                 importError = result.error
-                debugLog("import FAILED: ${result.error}")
+                debugLog("import failed")
             } else if (result.servers.isNotEmpty()) {
                 val isSingleCustomLink = url.startsWith("vpn://") || url.startsWith("tt://") || OlcrtcUri.isOlcrtcUri(url)
                 val dbgFirst = result.servers.first()
@@ -1471,43 +1475,18 @@ if (isSingleCustomLink) {
                     }
                 }
 
+                // An opaque subscription token is not a Telegram ID. Only a numeric
+                // ID supplied by the URL or profile can be used for account lookups.
                 val userIdFromUrl = url.substringAfterLast("/").substringBefore("?").trim()
-                val numericUserId = userIdFromUrl.toLongOrNull()
-                val usernameId = profile?.username?.trim()?.toLongOrNull()
-                if (profile == null || subscriptionPlan.isBlank() || subscriptionExpiry.isBlank() || numericUserId == null) {
-                    val resolvedUserId = when {
-                        numericUserId != null -> numericUserId
-                        usernameId != null -> usernameId
-                        else -> telegramToken.toLongOrNull()
-                    }
-                    if (resolvedUserId != null) {
-                        val user = apiClient.getUser(resolvedUserId)
-                        if (user != null) {
-                            userInfo = user
-                            telegramToken = resolvedUserId.toString()
-                            isLoggedIn = true
-                            user.subscription?.tariff?.let { subscriptionPlan = it }
-                            user.subscription?.expiresAt?.let { subscriptionExpiry = it }
-                        }
-                        val sub2 = apiClient.getSubscription(resolvedUserId)
-                        if (sub2 != null) {
-                            if (subscriptionPlan.isBlank()) subscriptionPlan = sub2.tariff
-                            if (subscriptionExpiry.isBlank()) {
-                                val exp = sub2.expiresAt.take(10)
-                                if (exp.isNotBlank() && exp != "N/A") subscriptionExpiry = exp
-                            }
-                        }
-                    }
-                    settingsStore?.setUserId(if (resolvedUserId != null) resolvedUserId.toString() else userIdFromUrl)
-                } else {
-                    // Profile info came back with the subscription: the user is authed.
-                    val resolvedUserId = numericUserId ?: usernameId ?: telegramToken.toLongOrNull()
-                    if (resolvedUserId != null) {
+                val resolvedUserId = userIdFromUrl.toLongOrNull() ?: profile?.username?.trim()?.toLongOrNull()
+                if (resolvedUserId != null) {
+                    settingsStore?.setUserId(resolvedUserId.toString())
+                    if (profile != null) {
                         telegramToken = resolvedUserId.toString()
                         isLoggedIn = true
                     }
-                    settingsStore?.setUserId(if (resolvedUserId != null) resolvedUserId.toString() else userIdFromUrl)
                 }
+
                 settingsStore?.setTariffName(subscriptionPlan)
                 settingsStore?.setSubscriptionExpiry(subscriptionExpiry)
                 val finalTs = profile?.expiry?.takeIf { it > 0 }?.times(1000L)
@@ -1541,12 +1520,51 @@ if (isSingleCustomLink) {
                 }
 
                 subscriptionUrl = url
+                // The list and cache are already ready. Account enrichment is optional
+                // and must not keep the import sheet open while the API is slow.
+                if (resolvedUserId != null) refreshImportedAccount(resolvedUserId, url, generation)
                 pingAllServers()
             } else {
                 importError = "No servers found in subscription"
             }
 
+          } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+          } catch (e: Exception) {
+            importError = "Import failed"
+            debugLog("import failed: ${e.javaClass.simpleName}")
+          } finally {
             isImporting = false
+          }
+        }
+    }
+
+    private fun refreshImportedAccount(id: Long, url: String, generation: Long) {
+        scope.launch {
+            val (user, sub) = coroutineScope {
+                val userRequest = async { apiClient.getUser(id) }
+                val subscriptionRequest = async { apiClient.getSubscription(id) }
+                userRequest.await() to subscriptionRequest.await()
+            }
+            if (generation != importGeneration || subscriptionUrl != url) return@launch
+            if (user != null) {
+                userInfo = user
+                telegramToken = id.toString()
+                isLoggedIn = true
+                user.subscription?.tariff?.let { subscriptionPlan = it }
+                user.subscription?.expiresAt?.let { subscriptionExpiry = it }
+            }
+            if (sub != null) {
+                if (subscriptionPlan.isBlank()) subscriptionPlan = sub.tariff
+                if (subscriptionExpiry.isBlank()) subscriptionExpiry = sub.expiresAt.take(10)
+            }
+            settingsStore?.setTariffName(subscriptionPlan)
+            settingsStore?.setSubscriptionExpiry(subscriptionExpiry)
+            val expiry = expiresAtToMillis(subscriptionExpiry)
+            if (expiry > 0) {
+                settingsStore?.setSubscriptionExpiryTs(expiry)
+                appContext?.let { ExpiryReminderScheduler.schedule(it) }
+            }
         }
     }
 

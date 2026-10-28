@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.sp
 /**
  * Typography of the "Liquid Glass Dark" system (REDESIGN.md §5.3).
  *
- * System font only ([FontFamily.Default]) — an iOS-like stack, no bundled faces.
+ * Inter is bundled so the same typography is used offline on every screen.
  * Numeric readouts use tabular figures ("tnum") so the session timer does not jitter.
  */
 val Inter = FontFamily(Font(R.font.inter_variable, FontWeight.Normal))
@@ -30,8 +30,8 @@ object RedType {
     val Display = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Bold,
-        fontSize = 30.sp,
-        lineHeight = 38.sp,
+        fontSize = 27.sp,
+        lineHeight = 34.sp,
         letterSpacing = (-0.4).sp
     )
 
@@ -39,40 +39,40 @@ object RedType {
     val Title = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 26.sp
+        fontSize = 18.sp,
+        lineHeight = 24.sp
     )
 
     /** Main text: 16sp Regular. */
     val Body = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 22.sp
+        fontSize = 14.sp,
+        lineHeight = 20.sp
     )
 
     /** Active values / metrics: 15sp Medium. */
     val BodyMedium = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Medium,
-        fontSize = 15.sp,
-        lineHeight = 20.sp
+        fontSize = 14.sp,
+        lineHeight = 19.sp
     )
 
     /** Captions, secondary text: 13sp Regular. */
     val Caption = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Normal,
-        fontSize = 13.sp,
-        lineHeight = 18.sp
+        fontSize = 12.sp,
+        lineHeight = 17.sp
     )
 
     /** Badges and small caps: 12sp Medium. */
     val CaptionMedium = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
         letterSpacing = 0.2.sp
     )
 
@@ -80,8 +80,8 @@ object RedType {
     val Mono = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+        fontSize = 13.sp,
+        lineHeight = 19.sp,
         fontFeatureSettings = "tnum"
     )
 }

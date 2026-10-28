@@ -1,14 +1,12 @@
 package com.example.ui.home
 
+import com.example.ui.icons.AppIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowForward
-import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,7 +48,7 @@ fun HomeScreen(onOpenServers: () -> Unit) {
             Spacer(Modifier.height(34.dp))
             Text(when(state) { ConnectionState.CONNECTED -> t("connected"); ConnectionState.CONNECTING -> t("connecting"); ConnectionState.DISCONNECTED -> t("disconnected") }, color = if (state == ConnectionState.CONNECTED) mint else Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(5.dp))
-            Text(if (state == ConnectionState.CONNECTED) server?.name ?: "—" else t("home_not_protected"), color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (state == ConnectionState.CONNECTED) server?.name ?: "—" else t("home_not_protected"), color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (state == ConnectionState.CONNECTED) formatDuration(RedShiftState.sessionDurationSeconds) else "REDPILL CLOUD", color = muted, fontSize = 12.sp, letterSpacing = 1.sp)
             if (state == ConnectionState.DISCONNECTED && RedShiftState.vpnError != null) {
                 Spacer(Modifier.height(10.dp))
@@ -59,18 +57,18 @@ fun HomeScreen(onOpenServers: () -> Unit) {
             Spacer(Modifier.weight(1f))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 Box(Modifier.size(106.dp).border(1.dp, mint.copy(alpha = .30f), CircleShape).padding(9.dp).clip(CircleShape).background(Brush.radialGradient(listOf(Color(0xFF354C40), Color(0xFF171E1B)))).border(1.dp, Color.White.copy(alpha=.18f), CircleShape).clickable { RedShiftState.toggleVpn() }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.PowerSettingsNew, contentDescription = t("app_title"), tint = if (state == ConnectionState.CONNECTED) mint else Color.White, modifier = Modifier.size(38.dp))
+                    Icon(AppIcons.PowerSettingsNew, contentDescription = t("app_title"), tint = if (state == ConnectionState.CONNECTED) mint else Color.White, modifier = Modifier.size(38.dp))
                 }
             }
             Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0xE51A201D)).border(1.dp, Color.White.copy(alpha=.08f), RoundedCornerShape(18.dp)).clickable { onOpenServers() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(server?.flag ?: "🌐", fontSize = 25.sp)
+                com.example.ui.components.ServerIcon(active = state == ConnectionState.CONNECTED)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(t("nav_servers").uppercase(), color = muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
-                    Text(server?.name ?: t("no_server_selected"), color = Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(server?.name ?: t("no_server_selected"), color = Color.White, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                Icon(Icons.Outlined.ArrowForward, contentDescription = null, tint = mint, modifier = Modifier.size(18.dp))
+                Icon(AppIcons.ArrowForward, contentDescription = null, tint = mint, modifier = Modifier.size(18.dp))
             }
             Spacer(Modifier.height(15.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

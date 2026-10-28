@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import com.example.ui.icons.AppIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,8 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -154,7 +153,7 @@ fun ListItem(
             if (showChevron) {
                 Spacer(Modifier.width(RedSpace.Xs))
                 Icon(
-                    imageVector = Icons.Outlined.ChevronRight,
+                    imageVector = AppIcons.ChevronRight,
                     contentDescription = null,
                     tint = VpnColors.TextTertiary,
                     modifier = Modifier.size(20.dp)

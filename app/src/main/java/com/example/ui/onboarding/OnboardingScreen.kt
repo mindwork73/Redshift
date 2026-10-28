@@ -1,5 +1,6 @@
 package com.example.ui.onboarding
 
+import com.example.ui.icons.AppIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,10 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.PowerSettingsNew
-import androidx.compose.material.icons.outlined.Public
-import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,9 +42,9 @@ private data class OnboardingSlide(
 )
 
 private val Slides = listOf(
-    OnboardingSlide(Icons.Outlined.Shield, "onboarding_1_title", "onboarding_1_desc"),
-    OnboardingSlide(Icons.Outlined.Public, "onboarding_2_title", "onboarding_2_desc"),
-    OnboardingSlide(Icons.Outlined.PowerSettingsNew, "onboarding_3_title", "onboarding_3_desc")
+    OnboardingSlide(AppIcons.Shield, "onboarding_1_title", "onboarding_1_desc"),
+    OnboardingSlide(AppIcons.Public, "onboarding_2_title", "onboarding_2_desc"),
+    OnboardingSlide(AppIcons.PowerSettingsNew, "onboarding_3_title", "onboarding_3_desc")
 )
 
 /**

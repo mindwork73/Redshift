@@ -194,3 +194,18 @@ private fun BoxScope.GlassGlint(visible: Boolean) {
             )
     )
 }
+
+/** Line icon for locations, shared by the home card and server list. */
+@Composable
+fun ServerIcon(active: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.size(38.dp).clip(RoundedCornerShape(13.dp))
+            .background(if (active) VpnColors.SuccessSoft else VpnColors.GlassFillStrong)
+            .border(0.7.dp, VpnColors.GlassBorder, RoundedCornerShape(13.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(com.example.ui.icons.AppIcons.ServerPin, contentDescription = null,
+            tint = if (active) VpnColors.Success else VpnColors.TextSecondary,
+            modifier = Modifier.size(20.dp))
+    }
+}

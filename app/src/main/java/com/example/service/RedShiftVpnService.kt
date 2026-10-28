@@ -242,7 +242,7 @@ class RedShiftVpnService : VpnService() {
         return builder
             .setContentTitle("RedShift VPN")
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(com.example.R.drawable.ic_redshift_tile)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
@@ -268,7 +268,7 @@ class RedShiftVpnService : VpnService() {
                 })
                     .setContentTitle("RedShift VPN")
                     .setContentText("VPN active")
-                    .setSmallIcon(android.R.drawable.ic_lock_lock)
+                    .setSmallIcon(com.example.R.drawable.ic_redshift_tile)
                     .setOngoing(true)
                     .build()
                 startForeground(1, notification)

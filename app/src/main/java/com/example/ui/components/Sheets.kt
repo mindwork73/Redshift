@@ -2,6 +2,7 @@
 
 package com.example.ui.components
 
+import com.example.ui.icons.AppIcons
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,9 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -130,7 +128,7 @@ fun ImportSubscriptionSheet(
                 isError = importError != null
             )
             GlassIconButton(
-                icon = Icons.Outlined.ContentPaste,
+                icon = AppIcons.ContentPaste,
                 contentDescription = t("paste"),
                 onClick = {
                     val text = clipboard.getText()?.text?.trim()
@@ -216,7 +214,7 @@ fun LanguageSheet(
                 }
                 if (isSelected) {
                     Icon(
-                        imageVector = Icons.Outlined.Check,
+                        imageVector = AppIcons.Check,
                         contentDescription = null,
                         tint = VpnColors.Accent,
                         modifier = Modifier.size(20.dp)

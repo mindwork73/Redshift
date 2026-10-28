@@ -1,5 +1,6 @@
 package com.example.ui.servers
 
+import com.example.ui.icons.AppIcons
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -17,13 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.NetworkPing
-import androidx.compose.material.icons.outlined.Sort
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -116,18 +110,18 @@ fun ServersScreen() {
             title = t("nav_servers"),
             actions = {
                 GlassIconButton(
-                    icon = Icons.Outlined.Sort,
+                    icon = AppIcons.Sort,
                     contentDescription = t("cd_sort_by_ping"),
                     onClick = { RedShiftState.setSortByPingEnabled(!RedShiftState.sortByPing) },
                     tint = if (sortByPing) VpnColors.Accent else VpnColors.TextPrimary
                 )
                 GlassIconButton(
-                    icon = Icons.Outlined.NetworkPing,
+                    icon = AppIcons.NetworkPing,
                     contentDescription = t("cd_ping_all"),
                     onClick = { RedShiftState.pingAllServers() }
                 )
                 GlassIconButton(
-                    icon = Icons.Outlined.Add,
+                    icon = AppIcons.Add,
                     contentDescription = t("add_server_btn"),
                     onClick = { showImportSheet = true }
                 )
@@ -259,7 +253,7 @@ private fun EmptyServers(onAddSubscription: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Outlined.Cloud,
+                imageVector = AppIcons.Cloud,
                 contentDescription = null,
                 tint = VpnColors.TextTertiary,
                 modifier = Modifier.size(28.dp)
@@ -314,68 +308,31 @@ private fun ServerRow(
                 .padding(horizontal = RedSpace.M, vertical = RedSpace.S),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(VpnColors.GlassFillStrong),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = server.flag.takeIf { it.isNotBlank() } ?: DASH,
-                    fontSize = 20.sp
-                )
-            }
-
+            com.example.ui.components.ServerIcon(active = isActive)
             Spacer(Modifier.width(RedSpace.S))
-
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = server.name,
-                    style = RedType.Body,
+                    style = RedType.BodyMedium,
                     color = VpnColors.TextPrimary,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = server.address,
-                    style = RedType.Caption,
-                    color = VpnColors.TextTertiary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Spacer(Modifier.width(RedSpace.Xs))
-
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(RedSpace.Xxs)
-            ) {
-                ProtocolPill(protocol = server.protocol)
-                if (isActive) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(RedSpace.Xxs)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Check,
-                            contentDescription = t("server_active"),
-                            tint = VpnColors.Success,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = t("server_active"),
-                            style = RedType.CaptionMedium,
-                            color = VpnColors.Success
-                        )
+                Spacer(Modifier.height(RedSpace.Xxs))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(RedSpace.Xxs),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ProtocolPill(protocol = server.protocol)
+                    if (isActive) {
+                        Text(t("server_active"), style = RedType.CaptionMedium, color = VpnColors.Success)
+                    } else {
+                        PingPill(latencyMs = server.latency)
                     }
-                } else {
-                    PingPill(latencyMs = server.latency)
                 }
             }
-            IconButton(onClick = onLongClick, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Outlined.Delete, contentDescription = t("delete_server"), tint = VpnColors.TextTertiary, modifier = Modifier.size(19.dp))
+            IconButton(onClick = onLongClick, modifier = Modifier.size(36.dp)) {
+                Icon(AppIcons.Delete, contentDescription = t("delete_server"), tint = VpnColors.TextTertiary, modifier = Modifier.size(19.dp))
             }
         }
 
