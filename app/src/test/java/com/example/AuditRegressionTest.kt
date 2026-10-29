@@ -19,6 +19,13 @@ import java.io.File
 class AuditRegressionTest {
     private val server = SubServer(id = "test", name = "test", protocol = "Hysteria 2", address = "127.0.0.1", port = 443, flag = "")
 
+    @Test fun legacyRedpillAwgUsesDirectVpnDns() {
+        assertEquals("nl.redpillcloud.ru", SingBoxConfigGenerator.amneziaEndpointHost("redpillcloud.ru"))
+        assertEquals("nl.redpillcloud.ru", SingBoxConfigGenerator.amneziaEndpointHost("REDPILLCLOUD.RU"))
+        assertEquals("example.org", SingBoxConfigGenerator.amneziaEndpointHost("example.org"))
+        assertEquals("redpillcloud.ru.example.org", SingBoxConfigGenerator.amneziaEndpointHost("redpillcloud.ru.example.org"))
+    }
+
     @Test fun globalRoutingDoesNotSendRussianOrSplitDomainsDirect() {
         val config = JSONObject(SingBoxConfigGenerator().generateConfig(server, filesDir = "/data", splitDomains = listOf("example.com"), routingMode = "global", bypassRussia = true))
         val rules = config.getJSONObject("route").getJSONArray("rules")

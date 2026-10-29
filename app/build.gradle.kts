@@ -18,7 +18,7 @@ android {
     // Поднимай ВЕРСИЮ_ПРИЛОЖЕНИЯ при каждом релизе/сборке — versionCode
     // пересчитается автоматически, и Android корректно перезапишет APK.
     // Пока продукт не готов — держим мажор 0 (0.x.y).
-    val appVersionName = System.getenv("APP_VERSION") ?: "0.3.11"
+    val appVersionName = System.getenv("APP_VERSION") ?: "0.3.12"
     val versionParts = appVersionName.split('.').map { it.toInt() }
     versionCode = versionParts[0] * 1_000_000 + versionParts[1] * 10_000 + versionParts[2] * 100
     versionName = appVersionName

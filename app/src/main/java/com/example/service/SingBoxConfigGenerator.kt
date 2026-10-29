@@ -31,6 +31,11 @@ class SingBoxConfigGenerator {
         )
         private const val DEFAULT_HY2_UP_MBPS = 20
         private const val DEFAULT_HY2_DOWN_MBPS = 100
+
+        /** Older RedPill NL AWG profiles point at the web site's proxied domain.
+         * Cloudflare's web proxy does not forward the WireGuard UDP endpoint. */
+        fun amneziaEndpointHost(host: String): String =
+            if (host.trim().equals("redpillcloud.ru", ignoreCase = true)) "nl.redpillcloud.ru" else host
     }
 
     fun generateConfig(server: SubServer, socksPort: Int = 10808, filesDir: String = "", splitDomains: List<String> = emptyList(), splitOnly: Boolean = false, routingMode: String = "rule", bypassRussia: Boolean = true, bypassChina: Boolean = false, blockAds: Boolean = false): String {
@@ -41,7 +46,8 @@ class SingBoxConfigGenerator {
         // "failed to resolve endpoints"). Resolve locally, before the TUN is up.
         // olcRTC endpoints are WebRTC room ids, not hosts — never resolve those.
         val isOlcrtc = isOlcrtcProtocol(server)
-        val cfgServer = if (isOlcrtc) server else server.copy(address = resolveHostToIp(server.address))
+        val endpoint = if (isAmneziaProtocol(server)) amneziaEndpointHost(server.address) else server.address
+        val cfgServer = if (isOlcrtc) server else server.copy(address = resolveHostToIp(endpoint))
         val isAwg = isAmneziaProtocol(cfgServer)
         val outTag = cfgServer.id
 

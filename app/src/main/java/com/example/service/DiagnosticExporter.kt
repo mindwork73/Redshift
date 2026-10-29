@@ -43,10 +43,26 @@ object DiagnosticExporter {
                 w.write("\n")
                 // Raw logs, URLs and tunnel configuration may contain credentials.
                 // Export only a small allowlisted summary.
-                w.write("servers=${com.example.ui.RedShiftState.servers.size}\n")
-                w.write("olcrtc=${if (RedShiftVpnService.tunReady) "tun-ready" else "inactive"}\n")
+                val state = com.example.ui.RedShiftState
+                w.write("servers=${state.servers.size}\n")
+                val protocol = state.getSelectedServer()?.protocol.orEmpty().uppercase(Locale.ROOT)
+                val safeProtocol = when {
+                    "OLCRTC" in protocol -> "OLCRTC"
+                    "AMNEZIA" in protocol || "AWG" in protocol || "WIREGUARD" in protocol -> "AMNEZIAWG"
+                    "VLESS" in protocol -> "VLESS"
+                    "VMESS" in protocol -> "VMESS"
+                    "TROJAN" in protocol -> "TROJAN"
+                    "HYSTERIA" in protocol || "HY2" in protocol -> "HYSTERIA2"
+                    "SHADOWSOCKS" in protocol || protocol == "SS" -> "SHADOWSOCKS"
+                    else -> "OTHER"
+                }
+                w.write("selected_protocol=$safeProtocol routing=${state.routingMode.name}\n")
+                w.write("split_enabled=${state.splitTunnelEnabled} split_by_apps=${state.splitTunnelByApps} split_only=${state.splitTunnelOnly}\n")
                 val diag = context.getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE)
-                w.write("provider=${diag.getString("provider", "none")} transport=${diag.getString("transport", "none")}\n")
+                val provider = diag.getString("provider", "none") ?: "none"
+                val olcrtc = if (provider == "none") "inactive" else if (RedShiftVpnService.tunReady) "tun-ready" else "starting-or-stopped"
+                w.write("olcrtc=$olcrtc\n")
+                w.write("provider=$provider transport=${diag.getString("transport", "none")}\n")
                 w.write("last_stage=${diag.getString("stage", "none")}\n")
                 w.write("last_failure=${diag.getString("failure", "none")}\n")
                 w.write("Diagnostic details containing subscription credentials are omitted.\n")
