@@ -44,6 +44,53 @@ class AuditRegressionTest {
         assertTrue(result.error.isNotEmpty())
     }
 
+    @Test fun directVlessProfileIsImportedWithoutHttpFetch() = runBlocking {
+        val result = SubscriptionClient().fetchSubscription("vless://test-user@127.0.0.1:443#Direct")
+        assertTrue(result.error.isEmpty())
+        assertEquals(1, result.servers.size)
+        assertEquals("Direct", result.servers.single().name)
+    }
+
+    @Test fun removingSubscriptionPreservesOtherSourcesAndRejectsStaleRefresh() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = com.example.service.SettingsStore(context)
+        val url = "https://example.invalid/sub/one"
+        val original = org.json.JSONArray().apply {
+            put(JSONObject().put("id", "one").put("url", url))
+            put(JSONObject().put("id", "two").put("url", "https://example.invalid/sub/two"))
+        }.toString()
+        store.setSubscriptionUrl(url)
+        store.setCachedServersJson(original)
+        assertTrue(store.removeSubscription(url))
+        assertEquals("", store.getBlockingSubscriptionUrl())
+        val remaining = org.json.JSONArray(store.getBlockingCachedServersJson())
+        assertEquals(1, remaining.length())
+        assertEquals("two", remaining.getJSONObject(0).getString("id"))
+        assertFalse(store.saveRefreshIfUnchanged(url, original, "[]", 0))
+        assertEquals(1, org.json.JSONArray(store.getBlockingCachedServersJson()).length())
+    }
+
+    @Test fun refreshDoesNotOverwriteAConcurrentImport() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = com.example.service.SettingsStore(context)
+        val url = "https://example.invalid/sub/current"
+        store.setSubscriptionUrl(url)
+        store.setCachedServersJson("[{\"id\":\"new-import\"}]")
+        assertFalse(store.saveRefreshIfUnchanged(url, "[]", "[]", 0))
+        assertEquals("new-import", org.json.JSONArray(store.getBlockingCachedServersJson()).getJSONObject(0).getString("id"))
+    }
+
+    @Test fun removingSubscriptionWorksWithoutCachedServers() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val store = com.example.service.SettingsStore(context)
+        val url = "https://example.invalid/sub/empty"
+        store.setSubscriptionUrl(url)
+        store.setCachedServersJson("")
+        assertTrue(store.removeSubscription(url))
+        assertEquals("", store.getBlockingSubscriptionUrl())
+        assertEquals(0, org.json.JSONArray(store.getBlockingCachedServersJson()).length())
+    }
+
     @Test fun refreshReplacesCurrentSubscriptionAndPreservesOtherSources() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val socket = java.net.ServerSocket(0)

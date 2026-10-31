@@ -362,6 +362,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
                 subtitle = when {
                     RedShiftState.isCheckingUpdate -> t("checking_updates")
                     RedShiftState.updateCheckError == "up_to_date" -> t("up_to_date")
+                    RedShiftState.updateCheckError == "update_check_failed" -> t("update_check_failed")
                     else -> ""
                 },
                 leadingIcon = AppIcons.Refresh,
@@ -448,6 +449,7 @@ private fun SectionSpacer() {
  */
 @Composable
 private fun SubscriptionSheet(onDismissRequest: () -> Unit) {
+    var confirmRemoval by remember { mutableStateOf(false) }
     val plan = RedShiftState.subscriptionPlan
     val expiry = RedShiftState.subscriptionExpiry
     val url = RedShiftState.subscriptionUrl
@@ -482,9 +484,25 @@ private fun SubscriptionSheet(onDismissRequest: () -> Unit) {
             GradientButton(
                 text = t("subscription_remove"),
                 enabled = url.isNotBlank(),
-                onClick = { RedShiftState.subscriptionUrl = "" }
+                onClick = { confirmRemoval = true }
             )
         }
+    }
+    if (confirmRemoval) {
+        AlertDialog(
+            onDismissRequest = { confirmRemoval = false },
+            title = { Text(t("subscription_remove")) },
+            text = { Text(t("subscription_remove_confirm")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemoval = false
+                    RedShiftState.removeCurrentSubscription()
+                }) { Text(t("subscription_remove")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemoval = false }) { Text(t("cancel")) }
+            }
+        )
     }
 }
 

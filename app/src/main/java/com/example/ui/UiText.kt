@@ -109,7 +109,15 @@ object UiText {
         "subscription_expiry" to mapOf("en" to "Valid until", "ru" to "Действует до"),
         "subscription_url" to mapOf("en" to "Link", "ru" to "Ссылка"),
         "subscription_refresh" to mapOf("en" to "Refresh", "ru" to "Обновить"),
-        "subscription_remove" to mapOf("en" to "Remove link", "ru" to "Удалить ссылку"),
+        "subscription_remove" to mapOf("en" to "Remove subscription", "ru" to "Удалить подписку"),
+        "subscription_remove_confirm" to mapOf(
+            "en" to "Remove this subscription and its saved servers? Other subscriptions and their servers will stay.",
+            "ru" to "Удалить эту подписку и её сохранённые серверы? Остальные подписки и серверы останутся."
+        ),
+        "update_download_failed" to mapOf(
+            "en" to "Download failed. Check your connection and try again.",
+            "ru" to "Не удалось скачать обновление. Проверьте соединение и попробуйте ещё раз."
+        ),
         "no_subscription" to mapOf("en" to "No subscription", "ru" to "Нет подписки"),
         "section_connection" to mapOf("en" to "Connection", "ru" to "Подключение"),
         "start_on_boot" to mapOf("en" to "Start on boot", "ru" to "Запуск при старте системы"),

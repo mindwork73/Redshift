@@ -142,6 +142,42 @@ class SettingsStore(private val context: Context) {
     suspend fun setSortByPing(value: Boolean) = context.dataStore.edit { it[KEY_SORT_BY_PING] = value }
     suspend fun setHiddenServers(value: Set<String>) = context.dataStore.edit { it[KEY_HIDDEN_SERVERS] = value }
 
+    /** Remove only the selected subscription and its cached nodes in one transaction. */
+    suspend fun removeSubscription(url: String): Boolean {
+        var removed = false
+        context.dataStore.edit { prefs ->
+            if (prefs[KEY_SUBSCRIPTION_URL] != url) return@edit
+            val old = org.json.JSONArray((prefs[KEY_CACHED_SERVERS_JSON] ?: "").ifBlank { "[]" })
+            val remaining = org.json.JSONArray()
+            for (i in 0 until old.length()) {
+                val item = old.getJSONObject(i)
+                if (item.optString("url") != url) remaining.put(item)
+            }
+            prefs[KEY_SUBSCRIPTION_URL] = ""
+            prefs[KEY_CACHED_SERVERS_JSON] = remaining.toString()
+            prefs[KEY_CACHED_SERVERS_COUNT] = remaining.length()
+            prefs[KEY_LAST_REFRESH_TIME] = 0L
+            prefs[KEY_TARIFF_NAME] = ""
+            prefs[KEY_SUBSCRIPTION_EXPIRY] = ""
+            prefs[KEY_SUBSCRIPTION_EXPIRY_TS] = 0L
+            removed = true
+        }
+        return removed
+    }
+
+    /** Do not let a slow refresh overwrite newer imports or a removed subscription. */
+    suspend fun saveRefreshIfUnchanged(url: String, expectedCache: String, newCache: String, count: Int): Boolean {
+        var saved = false
+        context.dataStore.edit { prefs ->
+            if (prefs[KEY_SUBSCRIPTION_URL] != url || (prefs[KEY_CACHED_SERVERS_JSON] ?: "") != expectedCache) return@edit
+            prefs[KEY_CACHED_SERVERS_JSON] = newCache
+            prefs[KEY_CACHED_SERVERS_COUNT] = count
+            prefs[KEY_LAST_REFRESH_TIME] = System.currentTimeMillis()
+            saved = true
+        }
+        return saved
+    }
+
     /** Permanently remove locally cached entries for one server. */
     suspend fun removeCachedServer(id: String, extra: String) {
         context.dataStore.edit { prefs ->

@@ -800,6 +800,9 @@ object Trans {
             "ar" to "جارٍ التنزيل…", "tr" to "İndiriliyor…", "vi" to "Đang tải…", "id" to "Mengunduh…", "hi" to "डाउनलोड हो रहा है…",
             "pt-BR" to "Baixando…", "it" to "Download…", "uk" to "Завантаження…", "kk" to "Жүктелуде…", "he" to "מוריד…"
         ),
+        "update_check_failed" to mapOf(
+            "en" to "Couldn't check for updates", "ru" to "Не удалось проверить обновления"
+        ),
         "up_to_date" to mapOf(
             "en" to "You're up to date", "ru" to "У вас последняя версия", "zh-CN" to "已是最新版本", "zh-TW" to "已是最新版本", "fa" to "نسخهی شما بهروز است",
             "es" to "Estás al día", "fr" to "Vous êtes à jour", "de" to "Du bist auf dem neuesten Stand", "ja" to "最新版です", "ko" to "최신 버전입니다",

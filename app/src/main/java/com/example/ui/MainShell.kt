@@ -161,6 +161,7 @@ fun MainAppContainer() {
 private fun UpdateDialog() {
     val update = RedShiftState.availableUpdate ?: return
     val installing = remember { mutableStateOf(false) }
+    var downloadFailed by remember(update.tagName) { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -169,7 +170,8 @@ private fun UpdateDialog() {
         title = { Text(text = t("update_available")) },
         text = {
             Text(
-                text = "${update.versionName}\n\n${update.changelog.take(500)}",
+                text = "${update.versionName}\n\n${update.changelog.take(500)}" +
+                    if (downloadFailed) "\n\n${t("update_download_failed")}" else "",
                 color = VpnColors.TextSecondary
             )
         },
@@ -181,6 +183,7 @@ private fun UpdateDialog() {
                 enabled = !installing.value,
                 onClick = {
                     installing.value = true
+                    downloadFailed = false
                     val appCtx = context.applicationContext
                     scope.launch {
                         val apk = com.example.service.UpdateChecker.downloadApk(appCtx, update.apkUrl)
@@ -191,6 +194,8 @@ private fun UpdateDialog() {
                                 com.example.service.UpdateChecker.openInstallPermissionSettings(appCtx)
                             }
                             RedShiftState.clearUpdateDialog()
+                        } else {
+                            downloadFailed = true
                         }
                     }
                 }

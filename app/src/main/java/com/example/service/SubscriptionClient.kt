@@ -63,7 +63,7 @@ class SubscriptionClient {
         .build()
 
     suspend fun fetchSubscription(url: String): SubscriptionResult = withContext(Dispatchers.IO) {
-        if (url.startsWith("vpn://") || OlcrtcUri.isOlcrtcUri(url)) {
+        if (isDirectProfile(url)) {
             val server = parseProxyUri(url, 0)
             DiagLog.d("Sub", "single link parsed=${server != null}")
             return@withContext if (server != null) {
@@ -291,6 +291,10 @@ class SubscriptionClient {
     }
 
     companion object {
+        fun isDirectProfile(url: String): Boolean =
+            OlcrtcUri.isOlcrtcUri(url) || listOf("vpn://", "tt://", "vless://", "vmess://", "trojan://", "ss://", "hy2://", "hysteria2://")
+                .any { url.startsWith(it) }
+
         // The apex host does not currently serve subscription HTTPS; the www host
         // serves the same paths. Keep the original URL as the subscription identity.
         fun normalizeSubscriptionUrl(url: String): String =

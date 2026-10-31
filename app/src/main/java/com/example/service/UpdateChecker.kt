@@ -62,10 +62,12 @@ object UpdateChecker {
             val req = Request.Builder().url(API_URL)
                 .header("User-Agent", "RedShift/${BuildConfig.VERSION_NAME}")
                 .build()
-            val resp = client.newCall(req).execute()
-            if (!resp.isSuccessful) return@withContext null
-            val json = JSONObject(resp.body!!.string())
+            val json = client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                JSONObject(resp.body?.string() ?: return@withContext null)
+            }
             val tag = json.optString("tag_name", "").removePrefix("v")
+            if (!tag.matches(Regex("\\d+(\\.\\d+){1,3}([+-][0-9A-Za-z.-]+)?"))) return@withContext null
             val assets = json.optJSONArray("assets")
             var apkUrl = ""
             var sizeBytes = 0L
@@ -98,22 +100,30 @@ object UpdateChecker {
      * Call on a background dispatcher.
      */
     suspend fun downloadApk(context: Context, url: String): File? = withContext(Dispatchers.IO) {
+        val dir = File(context.cacheDir, "apk").apply { mkdirs() }
+        val out = File(dir, "redshift-update.apk")
+        val partial = File(dir, "redshift-update.apk.part")
         try {
-            val dir = File(context.cacheDir, "apk").apply { mkdirs() }
-            val fileName = "redshift-update.apk"
-            val out = File(dir, fileName)
+            partial.delete()
             val req = Request.Builder().url(url)
                 .header("User-Agent", "RedShift/${BuildConfig.VERSION_NAME}")
                 .build()
-            val resp = client.newCall(req).execute()
-            if (!resp.isSuccessful) return@withContext null
-            resp.body?.byteStream()?.use { input ->
-                out.outputStream().use { output -> input.copyTo(output) }
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body ?: return@withContext null
+                val expected = body.contentLength()
+                val copied = body.byteStream().use { input ->
+                    partial.outputStream().use { output -> input.copyTo(output) }
+                }
+                if (copied == 0L || (expected >= 0 && copied != expected)) return@withContext null
             }
-            if (out.length() == 0L) return@withContext null
+            if (out.exists() && !out.delete()) return@withContext null
+            if (!partial.renameTo(out)) return@withContext null
             out
         } catch (_: Exception) {
             null
+        } finally {
+            partial.delete()
         }
     }
 

@@ -72,8 +72,9 @@ class SubscriptionRefreshWorker(
         // by endpoint so a refreshed slice never doubles existing nodes.
         val serversJson = JSONArray()
         val seen = HashSet<String>()
+        val originalCache = store.getBlockingCachedServersJson()
         try {
-            val existing = JSONArray(store.getBlockingCachedServersJson())
+            val existing = JSONArray(originalCache)
             for (i in 0 until existing.length()) {
                 val obj = existing.getJSONObject(i)
                 if (obj.optString("url") == url) continue
@@ -123,9 +124,7 @@ class SubscriptionRefreshWorker(
         }
 
         val finalJson = dedupeServerArray(serversJson)
-        store.setCachedServersJson(finalJson.toString())
-        store.setCachedServersCount(finalJson.length())
-        store.setLastRefreshTime(System.currentTimeMillis())
+        if (!store.saveRefreshIfUnchanged(url, originalCache, finalJson.toString(), finalJson.length())) return Result.retry()
 
         return Result.success()
     }

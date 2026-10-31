@@ -262,9 +262,9 @@ object RedShiftState {
             ) {
                 availableUpdate = info
             } else {
-                updateCheckError = "up_to_date"
+                updateCheckError = if (info == null) "update_check_failed" else "up_to_date"
                 delay(4000)
-                if (updateCheckError == "up_to_date") updateCheckError = null
+                if (updateCheckError == "up_to_date" || updateCheckError == "update_check_failed") updateCheckError = null
             }
         }
     }
@@ -1418,6 +1418,33 @@ private fun loadCachedServers() {
 
     private var importGeneration = 0L
 
+    fun removeCurrentSubscription() {
+        val url = subscriptionUrl
+        val store = settingsStore ?: return
+        if (url.isBlank() || isImporting) return
+        scope.launch {
+            try {
+                if (!store.removeSubscription(url)) return@launch
+                importGeneration++
+                appContext?.let { AutoRefreshScheduler.cancel(it); ExpiryReminderScheduler.cancel(it) }
+                val removedSelected = servers.any { it.subscriptionUrl == url && it.id == selectedServerId }
+                if (removedSelected && connectionState != ConnectionState.DISCONNECTED) disconnectVpnInternal()
+                servers.removeAll { it.subscriptionUrl == url }
+                recentServers.removeAll { it.subscriptionUrl == url }
+                subscriptions.removeAll { it.url == url }
+                subscriptionUrl = ""
+                subscriptionPlan = ""
+                subscriptionExpiry = ""
+                if (removedSelected) {
+                    selectedServerId = servers.firstOrNull()?.id.orEmpty()
+                    store.setSelectedServerId(selectedServerId)
+                }
+            } catch (e: Exception) {
+                debugLog("subscription removal failed: ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
     fun importSubscription(url: String) {
         if (url.isBlank() || isImporting) return
         val generation = ++importGeneration
@@ -1433,7 +1460,7 @@ private fun loadCachedServers() {
                 importError = result.error
                 debugLog("import failed")
             } else if (result.servers.isNotEmpty()) {
-                val isSingleCustomLink = url.startsWith("vpn://") || url.startsWith("tt://") || OlcrtcUri.isOlcrtcUri(url)
+                val isSingleCustomLink = SubscriptionClient.isDirectProfile(url)
                 val dbgFirst = result.servers.first()
                 debugLog("import OK: n=${result.servers.size} first=${dbgFirst.protocol} ${dbgFirst.address}:${dbgFirst.port} psk=${dbgFirst.presharedKey.isNotEmpty()} priv=${dbgFirst.privateKey.isNotEmpty()} srvPub=${dbgFirst.serverPublicKey.isNotEmpty()} awgParams=${if (dbgFirst.awgParams.isBlank()) "-" else "yes"}")
 
