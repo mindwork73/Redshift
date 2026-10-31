@@ -63,22 +63,30 @@ class SubscriptionClient {
         .build()
 
     suspend fun fetchSubscription(url: String): SubscriptionResult = withContext(Dispatchers.IO) {
-        if (url.startsWith("vpn://")) {
+        if (isDirectProfile(url)) {
             val server = parseProxyUri(url, 0)
+            DiagLog.d("Sub", "single link parsed=${server != null}")
             return@withContext if (server != null) {
                 SubscriptionResult(url, listOf(server))
             } else {
-                SubscriptionResult(url, emptyList(), "Invalid AmneziaVPN config")
+                SubscriptionResult(url, emptyList(), "Invalid config link")
             }
         }
         try {
             val request = Request.Builder()
-                .url(url)
+                .url(normalizeSubscriptionUrl(url))
                 .header("User-Agent", "RedShift/1.0")
                 .build()
 
             val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: return@withContext SubscriptionResult(url, emptyList(), "Empty response")
+            if (!response.isSuccessful) { response.close(); return@withContext SubscriptionResult(url, emptyList(), "HTTP ${response.code}") }
+            val responseBody = response.body ?: run { response.close(); return@withContext SubscriptionResult(url, emptyList(), "Empty response") }
+            val source = responseBody.source()
+            source.request(1_048_577)
+            if (source.buffer.size > 1_048_576) { response.close(); return@withContext SubscriptionResult(url, emptyList(), "Subscription is too large") }
+            val body = source.readUtf8()
+            response.close()
+            DiagLog.d("Sub", "http ${response.code} body=${body.length}")
 
             val servers = parseSubscriptionBody(body)
             var profileInfo = parseProfileInfoHeader(response)
@@ -109,6 +117,7 @@ class SubscriptionClient {
             }
             SubscriptionResult(url, servers, profileInfo = profileInfo)
         } catch (e: Exception) {
+            DiagLog.d("Sub", "fetch failed ${e::class.simpleName}")
             SubscriptionResult(url, emptyList(), e.message ?: "Unknown error")
         }
     }
@@ -191,11 +200,21 @@ class SubscriptionClient {
     private fun parseSubscriptionBody(body: String): List<SubServer> {
         val trimmed = body.trim()
 
-        if (trimmed.startsWith("{")) {
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
             return parseJsonSubscription(trimmed)
         }
-
-        return parsePlainTextSubscription(trimmed)
+        val plain = parsePlainTextSubscription(trimmed)
+        if (plain.isNotEmpty()) return plain
+        // Many subscription providers return an entire newline-separated list as
+        // Base64 (with optional URL-safe alphabet and missing padding).
+        val decoded = try {
+            val compact = trimmed.filterNot { it.isWhitespace() }
+            val bytes = try { android.util.Base64.decode(compact, android.util.Base64.DEFAULT) }
+                catch (_: IllegalArgumentException) { android.util.Base64.decode(compact, android.util.Base64.URL_SAFE) }
+            bytes.toString(Charsets.UTF_8).trim()
+        } catch (_: IllegalArgumentException) { return emptyList() }
+        return if (decoded.startsWith("[") || decoded.startsWith("{"))
+            parseJsonSubscription(decoded) else parsePlainTextSubscription(decoded)
     }
 
     private fun parseJsonSubscription(json: String): List<SubServer> {
@@ -240,14 +259,25 @@ class SubscriptionClient {
         val servers = mutableListOf<SubServer>()
 
         val lines = text.lines().filter { it.isNotBlank() }
+        var skipped = 0
 
         for ((index, line) in lines.withIndex()) {
             try {
                 val server = parseProxyUri(line, index)
-                if (server != null) servers.add(server)
-            } catch (_: Exception) {}
+                if (server != null) servers.add(server) else {
+                    skipped++
+                    // Every unparsable line is logged: a missing server in the UI used to
+                    // be indistinguishable from a working one, because the failure was
+                    // swallowed here.
+                    DiagLog.d("Sub", "unparsed line[$index]")
+                }
+            } catch (e: Exception) {
+                skipped++
+                DiagLog.d("Sub", "line[$index] ${e::class.simpleName}")
+            }
         }
 
+        DiagLog.d("Sub", "parsed=${servers.size} skipped=$skipped lines=${lines.size}")
         return servers
     }
 
@@ -261,6 +291,15 @@ class SubscriptionClient {
     }
 
     companion object {
+        fun isDirectProfile(url: String): Boolean =
+            OlcrtcUri.isOlcrtcUri(url) || listOf("vpn://", "tt://", "vless://", "vmess://", "trojan://", "ss://", "hy2://", "hysteria2://")
+                .any { url.startsWith(it) }
+
+        // The apex host does not currently serve subscription HTTPS; the www host
+        // serves the same paths. Keep the original URL as the subscription identity.
+        fun normalizeSubscriptionUrl(url: String): String =
+            url.replace(Regex("^https://redpillcloud\\.ru(?=/|$)", RegexOption.IGNORE_CASE), "https://www.redpillcloud.ru")
+
         fun deriveRegionFromAddress(address: String): String {
             val ip = address.trim()
             return when {
@@ -279,6 +318,7 @@ class SubscriptionClient {
         }
 
         fun flagForRegion(region: String): String = when (region) {
+            "RU" -> "\uD83C\uDDF7\uD83C\uDDFA"
             "NL" -> "\uD83C\uDDF3\uD83C\uDDF1"
             "EU" -> "\uD83C\uDDEA\uD83C\uDDFA"
             "US" -> "\uD83C\uDDFA\uD83C\uDDF8"
@@ -297,6 +337,33 @@ class SubscriptionClient {
     }
 
     private fun parseProxyUri(uri: String, index: Int): SubServer? {
+        // olcrtc:// uses '#' for the encryption key, not for a UI name, so handle it
+        // before the generic extractName / stripFragment logic that would misparse it.
+        if (OlcrtcUri.isOlcrtcUri(uri)) {
+            val spec = OlcrtcUri.parse(uri)
+            if (spec == null) {
+                DiagLog.d("Sub", "olcrtc parse failed")
+                return null
+            }
+            DiagLog.d("Sub", "olcrtc ok: ${spec.provider}/${spec.transport} room=${spec.room} label=${spec.label}")
+            val label = spec.label
+            val flag = when {
+                label.contains("nl", ignoreCase = true) -> "\uD83C\uDDF3\uD83C\uDDF1"
+                label.contains("de", ignoreCase = true) -> "\uD83C\uDDE9\uD83C\uDDEA"
+                label.contains("us", ignoreCase = true) -> "\uD83C\uDDFA\uD83C\uDDF8"
+                label.contains("uk", ignoreCase = true) -> "\uD83C\uDDEC\uD83C\uDDE7"
+                else -> "\uD83C\uDF10"
+            }
+            return SubServer(
+                id = "olcrtc_${Math.abs(uri.hashCode())}",
+                name = label.ifBlank { "${spec.provider}/${spec.transport}" },
+                protocol = "OLCRTC",
+                address = spec.room,
+                port = 0,
+                flag = flag,
+                extra = spec.uri
+            )
+        }
         val name = extractName(uri)
         val cleanUri = stripFragment(uri)
         val parsed = when {
@@ -382,7 +449,7 @@ class SubscriptionClient {
     private fun parseVmessUri(uri: String, name: String, flag: String, index: Int): SubServer? {
         return try {
             val b64 = uri.removePrefix("vmess://")
-            val decoded = String(java.util.Base64.getUrlDecoder().decode(b64), Charsets.UTF_8)
+            val decoded = String(android.util.Base64.decode(b64, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP), Charsets.UTF_8)
             val json = org.json.JSONObject(decoded)
             SubServer(
                 id = "vmess_${index}_${System.currentTimeMillis()}",
@@ -433,10 +500,10 @@ class SubscriptionClient {
             val hostPort: String
 
             if (atIndex > 0) {
-                methodPass = String(java.util.Base64.getUrlDecoder().decode(withoutScheme.substring(0, atIndex)), Charsets.UTF_8)
+                methodPass = String(android.util.Base64.decode(withoutScheme.substring(0, atIndex), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP), Charsets.UTF_8)
                 hostPort = withoutScheme.substring(atIndex + 1)
             } else {
-                val decoded = String(java.util.Base64.getUrlDecoder().decode(withoutScheme), Charsets.UTF_8)
+                val decoded = String(android.util.Base64.decode(withoutScheme, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP), Charsets.UTF_8)
                 val lastAtIndex = decoded.lastIndexOf("@")
                 if (lastAtIndex < 0) return null
                 methodPass = decoded.substring(0, lastAtIndex)
@@ -488,8 +555,11 @@ class SubscriptionClient {
     private fun parseAmneziaVpnUri(uri: String, name: String, flag: String, index: Int): SubServer? {
         return try {
             val b64 = uri.removePrefix("vpn://")
-            val decoded = java.util.Base64.getUrlDecoder().decode(b64)
+            if (b64.length > 1_500_000) return null
+            val decoded = android.util.Base64.decode(b64, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+            if (decoded.size < 5) return null
             val uncompLen = java.nio.ByteBuffer.wrap(decoded, 0, 4).int
+            if (uncompLen !in 1..1_048_576) return null
             val compressed = decoded.copyOfRange(4, decoded.size)
             val buf = ByteArray(uncompLen)
             var inflated = false
@@ -497,8 +567,13 @@ class SubscriptionClient {
                 val inflater = java.util.zip.Inflater(nowrap)
                 inflater.setInput(compressed)
                 try {
-                    inflater.inflate(buf)
-                    inflated = true
+                    var offset = 0
+                    while (!inflater.finished() && offset < buf.size) {
+                        val count = inflater.inflate(buf, offset, buf.size - offset)
+                        if (count == 0) break
+                        offset += count
+                    }
+                    inflated = inflater.finished() && offset == uncompLen
                 } catch (_: Exception) {
                 } finally {
                     inflater.end()
@@ -576,7 +651,7 @@ class SubscriptionClient {
                 parts[0] to (parts.getOrElse(1) { "" })
             }
             val b64Data = pairs["AQ"] ?: return null
-            val decoded = String(java.util.Base64.getUrlDecoder().decode(b64Data), Charsets.UTF_8)
+            val decoded = String(android.util.Base64.decode(b64Data, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP), Charsets.UTF_8)
             val lines = decoded.split("\n").filter { it.isNotBlank() }
             if (lines.size < 2) return null
             val host = lines[1]

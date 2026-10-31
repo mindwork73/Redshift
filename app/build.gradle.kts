@@ -18,7 +18,7 @@ android {
     // Поднимай ВЕРСИЮ_ПРИЛОЖЕНИЯ при каждом релизе/сборке — versionCode
     // пересчитается автоматически, и Android корректно перезапишет APK.
     // Пока продукт не готов — держим мажор 0 (0.x.y).
-    val appVersionName = System.getenv("APP_VERSION") ?: "0.1.0"
+    val appVersionName = System.getenv("APP_VERSION") ?: "0.3.14"
     val versionParts = appVersionName.split('.').map { it.toInt() }
     versionCode = versionParts[0] * 1_000_000 + versionParts[1] * 10_000 + versionParts[2] * 100
     versionName = appVersionName
@@ -80,6 +80,8 @@ secrets {
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  // gomobile bindings for the olcRTC (WebRTC-over-Telemost) client tunnel.
+  implementation(fileTree("libs") { include("*.aar") })
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
@@ -116,6 +118,7 @@ dependencies {
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
+  testImplementation("androidx.work:work-testing:2.9.1")
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.robolectric)

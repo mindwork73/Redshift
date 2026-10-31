@@ -1,15 +1,19 @@
-﻿package com.example.ui
+package com.example.ui
 
 import android.content.Context
 import android.content.Intent
+import android.net.VpnService
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import com.example.BuildConfig
 import com.example.service.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
 import android.net.Uri
 import android.os.PowerManager
 
@@ -18,6 +22,8 @@ enum class ConnectionState {
     CONNECTING,
     CONNECTED
 }
+
+enum class ConnectivityStatus { NOT_CHECKED, CHECKING, REACHABLE, UNCONFIRMED }
 
 enum class RoutingMode {
     GLOBAL,
@@ -82,6 +88,9 @@ data class RoutingRule(
 )
 
 object RedShiftState {
+    const val VPN_CONSENT_REQUEST = 7332
+    var currentActivity: android.app.Activity? = null
+
     var connectionState by mutableStateOf(ConnectionState.DISCONNECTED)
     var selectedServerId by mutableStateOf("nl_reality")
     var routingMode by mutableStateOf(RoutingMode.RULE)
@@ -106,8 +115,18 @@ object RedShiftState {
     var bypassLocal by mutableStateOf(true)
     var bypassLan by mutableStateOf(true)
     var bypassChina by mutableStateOf(false)
-    var bypassRussia by mutableStateOf(false)
-    var blockAds by mutableStateOf(true)
+    var bypassRussia by mutableStateOf(true)
+    var blockAds by mutableStateOf(false)
+
+    var splitTunnelEnabled by mutableStateOf(false)
+    var splitTunnelByApps by mutableStateOf(false)
+    var splitTunnelOnly by mutableStateOf(true)
+    var splitDomains by mutableStateOf<List<String>>(emptyList())
+    var splitApps by mutableStateOf<List<String>>(emptyList())
+
+    var availableUpdate by mutableStateOf<com.example.service.UpdateChecker.UpdateInfo?>(null)
+    var isCheckingUpdate by mutableStateOf(false)
+    var updateCheckError by mutableStateOf<String?>(null)
 
     var isOnboarded by mutableStateOf(false)
 
@@ -116,11 +135,19 @@ object RedShiftState {
     var subscriptionPlan by mutableStateOf("")
     var subscriptionExpiry by mutableStateOf("")
     var subscriptionUrl by mutableStateOf("")
+    var subscriptionUrls by mutableStateOf<List<String>>(emptyList())
+    var connectivityStatus by mutableStateOf(ConnectivityStatus.NOT_CHECKED)
 
     var isImporting by mutableStateOf(false)
     var importError by mutableStateOf<String?>(null)
     var loginError by mutableStateOf<String?>(null)
     var isLoadingUser by mutableStateOf(false)
+
+    /**
+     * Why the last connect attempt failed, as reported by the service (e.g. the olcRTC
+     * room never came up). Without it a failed connect silently reverted to DISCONNECTED.
+     */
+    var vpnError by mutableStateOf<String?>(null)
 
     var userInfo by mutableStateOf<UserInfo?>(null)
 
@@ -137,13 +164,52 @@ object RedShiftState {
     val subscriptions = mutableStateListOf<Subscription>()
     val routingRules = mutableStateListOf<RoutingRule>()
 
+    /**
+     * Identity keys of servers the user deleted. Loaded from [com.example.service.SettingsStore]
+     * and consulted wherever the list is rebuilt (cache loader and subscription importer) so a
+     * deleted server stays gone even though its subscription keeps re-sending it.
+     */
+    var hiddenServers by mutableStateOf<Set<String>>(emptySet())
+
     private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var timerJob: Job? = null
     private var telemetryJob: Job? = null
     private var trafficMonitor: com.example.service.TrafficMonitor? = null
     private var lastStreamUpdate = 0L
     private var lastConfig = ""
+
+    /**
+     * Monotonic generation counter for VPN connect/disconnect sessions. Every
+     * toggle bumps it; the in-flight connect coroutine checks it at each
+     * suspension point and aborts if it no longer matches. This prevents the
+     * race where disconnect's stop() runs while the connect coroutine is still
+     * polling for a TUN fd and then calls startWithTunFd() on a dead session
+     * (native start/stop on different threads -> SEGV, app dies without trace).
+     */
+    private var vpnGeneration = 0L
+    private var connectJob: Job? = null
+
+    /** Native teardown of the previous session; a server switch waits for it. */
+    private var teardownJob: Job? = null
+
+    /** True while [restartConnection] is between "stop the old" and "start the new". */
+    private var isSwitchingServer = false
+    private var switchToken = 0L
     var sortByPing by mutableStateOf(false)
+    var autoSelectBestServer by mutableStateOf(false)
+
+    /**
+     * Balancer region ("nl", "eu1") → selection score, lower wins. Filled from
+     * GET /api/v1/load by the pings and left empty when the API is unreachable, in
+     * which case the auto-select ranks purely by ping.
+     */
+    var serverLoad by mutableStateOf<Map<String, Int>>(emptyMap())
+
+    /** Score of a server the balancer has no metric for: behind every known region. */
+    private const val OVERLOADED_SCORE = Int.MAX_VALUE
+
+    /** Region token bounded by separators, so "Premium" does not read as "eu". */
+    private val REGION_TOKEN = Regex("(?i)(?:^|[-_/.\\s])(nl|eu1|eu|de|us|uk|sg)(?:$|[-_/.\\s])")
 
     private var settingsStore: SettingsStore? = null
     private var appContext: Context? = null
@@ -163,6 +229,7 @@ object RedShiftState {
         loadFromSettings()
         loadCachedServers()
         requestBatteryOptimization()
+        com.example.service.ExpiryReminderScheduler.schedule(context.applicationContext)
         scope.launch {
             kotlinx.coroutines.delay(2500)
             pingAllServers()
@@ -171,11 +238,45 @@ object RedShiftState {
             kotlinx.coroutines.delay(1500)
             val store = settingsStore ?: return@launch
             val savedUrl = runCatching { store.subscriptionUrl.first() }.getOrDefault("")
-            if (savedUrl.startsWith("http") && subscriptionPlan.isBlank()) {
+            if (savedUrl.startsWith("http") && (!isLoggedIn || subscriptionPlan.isBlank())) {
                 debugLog("auto-resync subscription on launch")
                 importSubscription(savedUrl)
             }
         }
+        scope.launch {
+            kotlinx.coroutines.delay(3500)
+            checkForUpdates()
+        }
+    }
+
+    /**
+     * Checks GitHub Releases for a newer app version and exposes the result via
+     * [availableUpdate]. The UI surfaces a dialog whenever it is non-null.
+     */
+    fun checkForUpdates() {
+        val ctx = appContext ?: return
+        if (isCheckingUpdate) return
+        isCheckingUpdate = true
+        updateCheckError = null
+        scope.launch {
+            val info = withContext(Dispatchers.IO) {
+                com.example.service.UpdateChecker.checkLatest()
+            }
+            isCheckingUpdate = false
+            if (info != null &&
+                com.example.service.UpdateChecker.isNewerVersion(info.versionName, BuildConfig.VERSION_NAME)
+            ) {
+                availableUpdate = info
+            } else {
+                updateCheckError = if (info == null) "update_check_failed" else "up_to_date"
+                delay(4000)
+                if (updateCheckError == "up_to_date" || updateCheckError == "update_check_failed") updateCheckError = null
+            }
+        }
+    }
+
+    fun clearUpdateDialog() {
+        availableUpdate = null
     }
 
     private fun requestBatteryOptimization() {
@@ -192,13 +293,7 @@ object RedShiftState {
     }
 
     private fun debugLog(msg: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-        val line = "$ts $msg\n"
-        try {
-            val f = java.io.File(appContext?.filesDir, "redshift_debug.log")
-            f.appendText(line)
-        } catch (_: Exception) {}
-        Log.e("RedShift", msg)
+        DiagLog.d("RedShift", msg)
     }
 
     fun readDebugLog(): String {
@@ -208,55 +303,179 @@ object RedShiftState {
         } catch (e: Exception) { "err: ${e.message}" }
     }
 
-    private fun loadCachedServers() {
+private fun loadCachedServers() {
         val store = settingsStore ?: return
         scope.launch {
-            val json = store.getBlockingCachedServersJson()
-            if (json.isNotBlank()) {
-                try {
-                    val arr = org.json.JSONArray(json)
-                    for (i in 0 until arr.length()) {
-                        val obj = arr.getJSONObject(i)
-                        val id = obj.getString("id")
-                        if (servers.none { it.id == id }) {
-                            servers.add(Server(
-                                id = id,
-                                name = obj.optString("name", ""),
-                                protocol = obj.optString("protocol", ""),
-                                address = obj.optString("address", ""),
-                                port = obj.optInt("port", 443),
-                                flag = obj.optString("flag", "рџЊђ"),
-                                subUuid = obj.optString("uuid", ""),
-                                subPassword = obj.optString("password", ""),
-                                subFlow = obj.optString("flow", ""),
-                                subEncryption = obj.optString("encryption", "none"),
-                                subNetwork = obj.optString("network", "tcp"),
-                                subTls = obj.optBoolean("tls", false),
-                                subSni = obj.optString("sni", ""),
-                                subPublicKey = obj.optString("publicKey", ""),
-                                subShortId = obj.optString("shortId", ""),
-                                subFingerprint = obj.optString("fingerprint", "chrome"),
-                                subPrivateKey = obj.optString("privateKey", ""),
-                                subPresharedKey = obj.optString("presharedKey", ""),
-                                subServerPublicKey = obj.optString("serverPublicKey", ""),
-                                subLocalAddress = obj.optString("localAddress", ""),
-                                subMtu = obj.optInt("mtu", 0),
-                                subAwgParams = obj.optString("awgParams", ""),
-                                subDns = obj.optString("dns", ""),
-                                subPath = obj.optString("path", ""),
-                                subHost = obj.optString("host", ""),
-                                subExtra = obj.optString("extra", ""),
-                                subAlpn = obj.optString("alpn", "")
-                            ))
-                        }
-                    }
-                } catch (_: Exception) {}
+            if (connectionState == ConnectionState.DISCONNECTED && !isImporting) {
+                val json = store.cachedServersJson.first()
+                val hidden = store.hiddenServers.first()
+                if (connectionState == ConnectionState.DISCONNECTED && !isImporting) reconcileCachedServers(json, hidden)
             }
         }
     }
 
+    private suspend fun reconcileCachedServers(json: String, hidden: Set<String>) {
+        if (json.isBlank()) return
+        try {
+            val arr = dedupeServerArray(org.json.JSONArray(json))
+            val savedSelection = settingsStore?.selectedServerId?.first().orEmpty()
+            if (connectionState != ConnectionState.DISCONNECTED || isImporting) return
+            val previousSelected = getSelectedServer()
+            val updated = mutableListOf<Server>()
+            for (i in 0 until arr.length()) {
+                val candidate = serverFromCacheObject(arr.getJSONObject(i))
+                if (hideKeysFor(candidate).any { it in hidden }) continue
+                if (updated.any { it.id == candidate.id || (it.subscriptionUrl == candidate.subscriptionUrl && (it.sameEndpointAs(candidate) || it.sameNamedAs(candidate))) }) continue
+                updated.add(candidate)
+            }
+            servers.clear()
+            servers.addAll(updated)
+            if (previousSelected != null && updated.none { it.id == selectedServerId }) {
+                val replacement = updated.firstOrNull { it.subscriptionUrl == previousSelected.subscriptionUrl && (it.sameEndpointAs(previousSelected) || it.sameNamedAs(previousSelected)) }
+                selectedServerId = (replacement ?: updated.firstOrNull())?.id.orEmpty()
+                settingsStore?.setSelectedServerId(selectedServerId)
+            } else if (previousSelected == null && updated.isNotEmpty() && updated.none { it.id == selectedServerId }) {
+                selectedServerId = (updated.firstOrNull { it.id == savedSelection } ?: updated.first()).id
+                settingsStore?.setSelectedServerId(selectedServerId)
+            }
+        } catch (e: org.json.JSONException) {
+            debugLog("cache load failed: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /** Dedupe by exact endpoint, then by logical node name (same name = rotated/regenerated node). */
+    private fun dedupeServerArray(arr: org.json.JSONArray): org.json.JSONArray {
+        val survivors = mutableListOf<org.json.JSONObject>()
+        val seenEndpoint = HashSet<String>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val key = endpointKey(
+                obj.optString("protocol", ""),
+                obj.optString("address", ""),
+                obj.optInt("port", 0)
+            )
+            if (key != null && !seenEndpoint.add(obj.optString("url", "") + "|" + key)) continue
+            survivors.add(obj)
+        }
+        val byName = LinkedHashMap<String, MutableList<org.json.JSONObject>>()
+        for (obj in survivors) {
+            byName.getOrPut(nameKey(obj)) { mutableListOf() }.add(obj)
+        }
+        val out = org.json.JSONArray()
+        val seenName = HashSet<String>()
+        for (obj in survivors) {
+            val nk = nameKey(obj)
+            if (!seenName.add(nk)) continue
+            val party = byName[nk] ?: continue
+            // Prefer the row tied to a real subscription url (current), drop stale url-less artifacts.
+            val winner = party.maxWithOrNull(
+                compareBy({ it.optString("url", "").isNotBlank() }, { it.optString("id", "").isNotBlank() })
+            ) ?: obj
+            out.put(winner)
+        }
+        return out
+    }
+
+    private fun nameKey(obj: org.json.JSONObject): String {
+        val name = obj.optString("name", "").uppercase().trim().filter { it.isLetterOrDigit() || it == ' ' }.trim()
+        val protoFamily = obj.optString("protocol", "").uppercase().substringBefore('+').trim()
+        return obj.optString("url", "") + "|$protoFamily::$name"
+    }
+
+    private fun endpointKey(protocol: String, address: String, port: Int): String? {
+        val addr = address.trim()
+        val proto = protocol.uppercase().filter { it.isLetterOrDigit() }
+        if (addr.isBlank() || port <= 0) return null
+        return "$addr:$port:$proto"
+    }
+
+    /**
+     * Identity keys of a server used to recognise it after it comes back from the cache or
+     * the subscription. The importer already treats a rotated node (same logical name, new
+     * id/IP) as the same server, so a deletion has to match on the same set of keys —
+     * otherwise the deleted server simply reappears once the subscription rotates its IP.
+     */
+    private fun hideKeysForParts(id: String, name: String, protocol: String, address: String, port: Int): List<String> {
+        val keys = mutableListOf<String>()
+        if (id.isNotBlank()) keys.add("id:$id")
+        endpointKey(protocol, address, port)?.let { keys.add("ep:$it") }
+        val norm = name.uppercase().trim().filter { it.isLetterOrDigit() || it == ' ' }.trim()
+        if (norm.isNotBlank()) {
+            keys.add("nm:${protocol.uppercase().substringBefore('+').trim()}::$norm")
+        }
+        return keys
+    }
+
+    private fun hideKeysFor(s: Server): List<String> =
+        hideKeysForParts(s.id, s.name, s.protocol, s.address, s.port)
+
+    /** True when the server matches any identity key stored in [hiddenServers]. */
+    private fun isHiddenParts(id: String, name: String, protocol: String, address: String, port: Int): Boolean {
+        if (hiddenServers.isEmpty()) return false
+        return hideKeysForParts(id, name, protocol, address, port).any { it in hiddenServers }
+    }
+
+    private fun isHiddenServer(candidate: Server): Boolean =
+        isHiddenParts(candidate.id, candidate.name, candidate.protocol, candidate.address, candidate.port)
+
+    private fun Server.sameEndpointAs(other: Server): Boolean {
+        return endpointKey(protocol, address, port) != null &&
+            endpointKey(protocol, address, port) == endpointKey(other.protocol, other.address, other.port)
+    }
+
+    private fun Server.sameNamedAs(other: Server): Boolean {
+        val protoFamily = protocol.uppercase().substringBefore('+').trim()
+        val otherFamily = other.protocol.uppercase().substringBefore('+').trim()
+        if (protoFamily != otherFamily) return false
+        if (name.isBlank() || other.name.isBlank()) return false
+        return name.uppercase().trim().filter { it.isLetterOrDigit() || it == ' ' }.trim() ==
+            other.name.uppercase().trim().filter { it.isLetterOrDigit() || it == ' ' }.trim()
+    }
+
+    private fun serverFromCacheObject(obj: org.json.JSONObject): Server {
+        return Server(
+            id = obj.getString("id"),
+            name = obj.optString("name", ""),
+            protocol = obj.optString("protocol", ""),
+            address = obj.optString("address", ""),
+            port = obj.optInt("port", 443),
+            flag = obj.optString("flag", "🌍"),
+            subUuid = obj.optString("uuid", ""),
+            subPassword = obj.optString("password", ""),
+            subFlow = obj.optString("flow", ""),
+            subEncryption = obj.optString("encryption", "none"),
+            subNetwork = obj.optString("network", "tcp"),
+            subTls = obj.optBoolean("tls", false),
+            subSni = obj.optString("sni", ""),
+            subPublicKey = obj.optString("publicKey", ""),
+            subShortId = obj.optString("shortId", ""),
+            subFingerprint = obj.optString("fingerprint", "chrome"),
+            subscriptionUrl = obj.optString("url", ""),
+            subPrivateKey = obj.optString("privateKey", ""),
+            subPresharedKey = obj.optString("presharedKey", ""),
+            subServerPublicKey = obj.optString("serverPublicKey", ""),
+            subLocalAddress = obj.optString("localAddress", ""),
+            subMtu = obj.optInt("mtu", 0),
+            subAwgParams = obj.optString("awgParams", ""),
+            subDns = obj.optString("dns", ""),
+            subPath = obj.optString("path", ""),
+            subHost = obj.optString("host", ""),
+            subExtra = obj.optString("extra", ""),
+            subAlpn = obj.optString("alpn", "")
+        )
+    }
+
     private fun loadFromSettings() {
         val store = settingsStore ?: return
+        scope.launch {
+            combine(store.cachedServersJson, snapshotFlow { connectionState to isImporting }) { json, state -> json to state }
+                .collect { (json, state) ->
+                    if (state.first == ConnectionState.DISCONNECTED && !state.second) {
+                        val hidden = store.hiddenServers.first()
+                        if (connectionState == ConnectionState.DISCONNECTED && !isImporting) reconcileCachedServers(json, hidden)
+                    }
+                }
+        }
         scope.launch {
             store.selectedServerId.collect { id ->
                 if (id.isNotEmpty()) selectedServerId = id
@@ -266,6 +485,9 @@ object RedShiftState {
             store.subscriptionUrl.collect { url ->
                 subscriptionUrl = url
             }
+        }
+        scope.launch {
+            store.subscriptionUrls.collect { urls -> subscriptionUrls = urls.sorted() }
         }
         scope.launch {
             store.startOnBoot.collect { startOnBoot = it }
@@ -315,15 +537,57 @@ object RedShiftState {
         }
         scope.launch {
             store.userId.collect { uid ->
-                if (uid.toIntOrNull() != null) {
+                if (uid.toLongOrNull() != null) {
                     telegramToken = uid
                     isLoggedIn = true
+                    val id = uid.toLongOrNull()
+                    if (id != null && userInfo == null) refreshUserData(id)
                 } else if (uid.isNotBlank()) {
                     // Legacy garbage: an old build wrote a full vpn:// deeplink as the
                     // user id. Never treat it as an account identifier.
                     settingsStore?.setUserId("")
                 }
             }
+        }
+        scope.launch {
+            store.splitTunnelEnabled.collect { splitTunnelEnabled = it }
+        }
+        scope.launch {
+            store.splitTunnelByApps.collect { splitTunnelByApps = it }
+        }
+        scope.launch {
+            store.splitTunnelOnly.collect { splitTunnelOnly = it }
+        }
+        scope.launch {
+            store.splitDomains.collect { raw ->
+                splitDomains = raw.split('\n').map { it.trim() }.filter { it.isNotBlank() }
+            }
+        }
+        scope.launch {
+            store.splitApps.collect { raw ->
+                splitApps = raw.split('\n').map { it.trim() }.filter { it.isNotBlank() }
+            }
+        }
+        scope.launch {
+            store.routingMode.collect { raw ->
+                routingMode = when (raw.lowercase()) {
+                    "global" -> RoutingMode.GLOBAL
+                    "direct" -> RoutingMode.DIRECT
+                    else -> RoutingMode.RULE
+                }
+            }
+        }
+        scope.launch {
+            store.blockAds.collect { blockAds = it }
+        }
+        scope.launch {
+            store.autoSelectBest.collect { autoSelectBestServer = it }
+        }
+        scope.launch {
+            store.sortByPing.collect { sortByPing = it }
+        }
+        scope.launch {
+            store.hiddenServers.collect { hiddenServers = it }
         }
     }
 
@@ -335,19 +599,230 @@ object RedShiftState {
         importError = null
     }
 
+    fun clearSavedServersAndSubscriptions() {
+        val store = settingsStore ?: return
+        if (isImporting) return
+        importGeneration++
+        if (connectionState != ConnectionState.DISCONNECTED) disconnectVpnInternal()
+        scope.launch {
+            store.clearSavedServersAndSubscriptions()
+            appContext?.let { AutoRefreshScheduler.cancel(it); ExpiryReminderScheduler.cancel(it) }
+            resetDefaultData()
+            subscriptionUrl = ""
+            selectedServerId = ""
+            subscriptionPlan = ""
+            subscriptionExpiry = ""
+        }
+    }
+
     fun pingAllServers() {
         val snapshot = servers.toList()
         scope.launch(Dispatchers.IO) {
+            // Fetched in parallel with the pings: by the time the auto-select below runs
+            // the metric is usually ready, and if it is not (API down, first launch) the
+            // map simply stays empty and the choice falls back to ping only.
+            val loadDeferred = async { apiClient.getLoad() }
             for (server in snapshot) {
                 val index = servers.indexOfFirst { it.id == server.id }
                 if (index < 0) continue
-                val ms = com.example.service.ServerPinger.ping(server.address, server.port, server.protocol)
+                // UDP-only protocols (Hysteria, AmneziaWG) have no TCP listener, so a
+                // SOCKS CONNECT through the tunnel would fail. While connected the app's
+                // sockets bypass the TUN (own package is disallowed), so ICMP still
+                // reaches the host directly and reports a real RTT.
+                val udpProto = com.example.service.ServerPinger.isUdpBased(server.protocol)
+                val viaTunnel = connectionState == ConnectionState.CONNECTED &&
+                    com.example.service.RedShiftVpnService.tunReady && !udpProto
+                val ms = if (viaTunnel) {
+                    com.example.service.ServerPinger.pingViaProxy(
+                        server.address, server.port, server.protocol,
+                        com.example.service.SingBoxManager.MIXED_PORT
+                    )
+                } else {
+                    com.example.service.ServerPinger.ping(server.address, server.port, server.protocol)
+                }
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     val i = servers.indexOfFirst { it.id == server.id }
                     if (i >= 0) servers[i] = servers[i].copy(latency = ms)
                 }
             }
+            val score = scoreRegions(loadDeferred.await())
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                serverLoad = score
+            }
+            debugLog("load scores=$score")
+            if (autoSelectBestServer && connectionState != ConnectionState.CONNECTED) {
+                val best = pickAutoServer(servers.filter { it.latency > 0 })
+                if (best != null) {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        // Do not steal an in-progress user selection while connecting.
+                        if (connectionState != ConnectionState.CONNECTING) {
+                            debugLog("auto-select ${best.name} load=${serverLoad[loadKeyFor(best)]} ping=${best.latency}")
+                            selectServer(best.id)
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    /**
+     * Turn the raw API metric into the score used by the auto-select.
+     *
+     * Issued devices are the primary signal: they say how much spare capacity a region
+     * still has, and NL (6 devices) has far more of it than EU (250) even though their
+     * live peer counts are comparable — which is exactly the imbalance this selection
+     * exists to correct. A region is only pushed behind every other region when it is
+     * worse on BOTH signals (at least as many devices and more than twice the live
+     * peers), so a small region that happens to have a couple of busy peers is not
+     * mistaken for a full one.
+     */
+    private fun scoreRegions(raw: Map<String, com.example.service.RegionLoad>): Map<String, Int> {
+        if (raw.isEmpty()) return emptyMap()
+        val overloaded = raw.filter { (region, me) ->
+            me.active >= 0 && raw.any { (other, theirs) ->
+                other != region &&
+                    theirs.active >= 0 &&
+                    theirs.devices <= me.devices &&
+                    me.active > 2 * theirs.active
+            }
+        }.keys
+        return raw.mapValues { (region, load) ->
+            if (region in overloaded) OVERLOADED_SCORE else load.devices.coerceAtLeast(0)
+        }
+    }
+
+    /** Lowest score wins; ping breaks ties. */
+    private fun pickAutoServer(candidates: List<Server>): Server? =
+        candidates.minWithOrNull(compareBy({ loadScore(it) }, { it.latency }))
+
+    /**
+     * Score of a single server. A server whose region has no metric gets
+     * [OVERLOADED_SCORE] so it never beats a region we actually have data for — but
+     * when no metric is available at all every score is 0 and the comparison collapses
+     * to the old fastest-ping behaviour.
+     */
+    private fun loadScore(s: Server): Int {
+        if (serverLoad.isEmpty()) return 0
+        return serverLoad[loadKeyFor(s)] ?: OVERLOADED_SCORE
+    }
+
+    fun isOlcrtcServer(s: Server?): Boolean =
+        s?.protocol?.uppercase(java.util.Locale.US)?.contains("OLCRTC") == true
+
+    /**
+     * olcRTC connect failover order: the picked server first, then every other olcRTC
+     * server ranked by the same balancer order the auto-select uses. Non-olcRTC servers
+     * get a single-element list so a manual pick of another protocol is never overridden.
+     *
+     * olcRTC rooms sit on third-party meet services, so one of them can be unreachable
+     * or flaky for a given operator while another is fine — the client has to move on
+     * by itself instead of leaving the user with a dead tunnel.
+     */
+    fun olcrtcFailoverCandidates(selected: Server): List<Server> {
+        if (!isOlcrtcServer(selected)) return listOf(selected)
+        val ranked = servers
+            .filter { isOlcrtcServer(it) && it.id != selected.id }
+            .sortedWith(compareBy({ loadScore(it) }, { it.latency }))
+        return listOf(selected) + ranked
+    }
+
+    /**
+     * Maps a server onto a balancer region key ("nl" / "eu1"), or "" when it belongs to
+     * no region we track.
+     *
+     * Plain VPN rows carry an IP, which [deriveRegionFromAddress] already handles. The
+     * olcRTC rows do not — their address is a room URL
+     * (https://meet.egovm.ru/redpill-olcrtc-nl) — so for those the region token is
+     * matched in the room URL and in the server name instead.
+     */
+    private fun loadKeyFor(s: Server): String {
+        val region = deriveRegionFromAddress(s.address).ifBlank {
+            regionTokenIn("${s.address} ${s.name}")
+        }
+        return when (region) {
+            "NL" -> "nl"
+            "EU" -> "eu1"
+            else -> region.lowercase(java.util.Locale.US)
+        }
+    }
+
+    /** "…-nl", "…/eu1…", "RedPill EU" → NL / EU / …, anything else → "". */
+    private fun regionTokenIn(text: String): String {
+        val m = REGION_TOKEN.find(text) ?: return ""
+        return when (m.groupValues[1].lowercase(java.util.Locale.US)) {
+            "nl" -> "NL"
+            "eu", "eu1", "de" -> "EU"
+            "us" -> "US"
+            "uk" -> "UK"
+            "sg" -> "SG"
+            else -> ""
+        }
+    }
+
+    fun setSortByPingEnabled(enabled: Boolean) {
+        sortByPing = enabled
+        scope.launch { settingsStore?.setSortByPing(enabled) }
+    }
+
+    fun setAutoSelectBest(enabled: Boolean) {
+        autoSelectBestServer = enabled
+        scope.launch { settingsStore?.setAutoSelectBest(enabled) }
+    }
+
+    fun addSplitDomain(domain: String) {
+        val d = domain.trim().lowercase().removePrefix("*.").removePrefix("http://").removePrefix("https://")
+        if (d.isBlank() || splitDomains.contains(d)) return
+        splitDomains = splitDomains + d
+        scope.launch { settingsStore?.setSplitDomains(splitDomains.joinToString("\n")) }
+    }
+
+    fun removeSplitDomain(domain: String) {
+        splitDomains = splitDomains - domain
+        scope.launch { settingsStore?.setSplitDomains(splitDomains.joinToString("\n")) }
+    }
+
+    fun toggleSplitApp(packageName: String) {
+        splitApps = if (splitApps.contains(packageName)) {
+            splitApps - packageName
+        } else {
+            splitApps + packageName
+        }
+        scope.launch { settingsStore?.setSplitApps(splitApps.joinToString("\n")) }
+    }
+
+    fun setSplitEnabled(enabled: Boolean) {
+        splitTunnelEnabled = enabled
+        scope.launch { settingsStore?.setSplitTunnelEnabled(enabled) }
+    }
+
+    fun setSplitByApps(byApps: Boolean) {
+        splitTunnelByApps = byApps
+        scope.launch { settingsStore?.setSplitTunnelByApps(byApps) }
+    }
+
+    fun setSplitOnly(only: Boolean) {
+        splitTunnelOnly = only
+        scope.launch { settingsStore?.setSplitTunnelOnly(only) }
+    }
+
+    fun applyRoutingMode(mode: RoutingMode) {
+        routingMode = mode
+        scope.launch { settingsStore?.setRoutingMode(mode.name.lowercase()) }
+    }
+
+    fun applyBypassLocal(enabled: Boolean) {
+        bypassLocal = enabled
+        scope.launch { settingsStore?.setBypassLocal(enabled) }
+    }
+
+    fun applyBypassLan(enabled: Boolean) {
+        bypassLan = enabled
+        scope.launch { settingsStore?.setBypassLan(enabled) }
+    }
+
+    fun applyBlockAds(enabled: Boolean) {
+        blockAds = enabled
+        scope.launch { settingsStore?.setBlockAds(enabled) }
     }
 
     fun addServersFromSubResult(subServers: List<SubServer>, subUrl: String = "") {
@@ -361,45 +836,65 @@ object RedShiftState {
                 val region = deriveRegionFromAddress(sub.address)
                 name = "$name ($region)"
             }
-            val flag = if (sub.flag == "рџЊђ" || sub.flag.isEmpty()) {
+            val flag = if (sub.flag == "🌐" || sub.flag == "🌍" || sub.flag.isEmpty()) {
                 val regionFlag = flagFromRegion(deriveRegionFromAddress(sub.address))
                 regionFlag.ifEmpty { sub.flag }
             } else sub.flag
             val id = if (count > 0) "${sub.id}_$count" else sub.id
-            if (servers.none { it.id == id }) {
-                servers.add(
-                    Server(
-                        id = id,
-                        flag = flag,
-                        name = name,
-                        protocol = sub.protocol,
-                        address = sub.address,
-                        port = sub.port,
-                        subUuid = sub.uuid,
-                        subPassword = sub.password,
-                        subFlow = sub.flow,
-                        subEncryption = sub.encryption,
-                        subNetwork = sub.network,
-                        subTls = sub.tls,
-                        subSni = sub.sni,
-                        subPublicKey = sub.publicKey,
-                        subShortId = sub.shortId,
-                        subFingerprint = sub.fingerprint,
-                        subscriptionUrl = subUrl,
-                        subPrivateKey = sub.privateKey,
-                        subPresharedKey = sub.presharedKey,
-                        subServerPublicKey = sub.serverPublicKey,
-                        subLocalAddress = sub.localAddress,
-                        subMtu = sub.mtu,
-                        subAwgParams = sub.awgParams,
-                        subDns = sub.dns,
-                        subPath = sub.path,
-                        subHost = sub.host,
-                        subExtra = sub.extra,
-                        subAlpn = sub.alpn
-                    )
-                )
+            val candidate = Server(
+                id = id,
+                flag = flag,
+                name = name,
+                protocol = sub.protocol,
+                address = sub.address,
+                port = sub.port,
+                subUuid = sub.uuid,
+                subPassword = sub.password,
+                subFlow = sub.flow,
+                subEncryption = sub.encryption,
+                subNetwork = sub.network,
+                subTls = sub.tls,
+                subSni = sub.sni,
+                subPublicKey = sub.publicKey,
+                subShortId = sub.shortId,
+                subFingerprint = sub.fingerprint,
+                subscriptionUrl = subUrl,
+                subPrivateKey = sub.privateKey,
+                subPresharedKey = sub.presharedKey,
+                subServerPublicKey = sub.serverPublicKey,
+                subLocalAddress = sub.localAddress,
+                subMtu = sub.mtu,
+                subAwgParams = sub.awgParams,
+                subDns = sub.dns,
+                subPath = sub.path,
+                subHost = sub.host,
+                subExtra = sub.extra,
+                subAlpn = sub.alpn
+            )
+            // Skip servers the user deleted earlier, so a subscription refresh does not
+            // resurrect them (they are keyed by id / endpoint / logical name).
+            if (isHiddenServer(candidate)) {
+                debugLog("hidden-skip name='${candidate.name}' addr=${candidate.address}:${candidate.port} keys=${hideKeysForParts(candidate.id, candidate.name, candidate.protocol, candidate.address, candidate.port)}")
+                continue
             }
+            // Dedupe by id, endpoint and logical name: the whitelist subscription
+            // refreshes with new ids/IPs, which used to double entire servers.
+            if (servers.none { it.id == id || (it.subscriptionUrl == candidate.subscriptionUrl && (it.sameEndpointAs(candidate) || it.sameNamedAs(candidate))) }) {
+                servers.add(candidate)
+            } else {
+                debugLog("dupe-skip name='${candidate.name}' addr=${candidate.address}:${candidate.port}")
+            }
+        }
+        debugLog("addFromSub parsed=${subServers.size} kept=${servers.size}")
+    }
+
+    private fun expiresAtToMillis(expiresAt: String?): Long {
+        if (expiresAt.isNullOrBlank() || expiresAt == "N/A") return 0L
+        val s = expiresAt.trim().take(10)
+        return try {
+            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(s)?.time ?: 0L
+        } catch (_: Exception) {
+            0L
         }
     }
 
@@ -417,14 +912,33 @@ object RedShiftState {
         }
     }
 
-    private fun flagFromRegion(region: String): String = when (region) {
-        "NL" -> "рџ‡ірџ‡±"
-        "EU" -> "рџ‡Єрџ‡є"
-        "US" -> "рџ‡єрџ‡ё"
-        "UK" -> "рџ‡¬рџ‡§"
-        "SG" -> "рџ‡ёрџ‡¬"
-        "DE" -> "рџ‡©рџ‡Є"
-        else -> ""
+    private fun flagFromRegion(region: String): String = SubscriptionClient.flagForRegion(region)
+
+    fun serverFlag(server: Server?): String {
+        if (server == null) return ""
+        if (server.flag.codePoints().filter { it in 0x1F1E6..0x1F1FF }.count() == 2L) return server.flag
+        val codepoints = server.name.codePoints().toArray()
+        for (i in 0 until codepoints.size - 1) {
+            if (codepoints[i] in 0x1F1E6..0x1F1FF && codepoints[i + 1] in 0x1F1E6..0x1F1FF) {
+                return String(Character.toChars(codepoints[i])) + String(Character.toChars(codepoints[i + 1]))
+            }
+        }
+        val name = server.name.lowercase(java.util.Locale.ROOT)
+        val regions = listOf(
+            "RU" to listOf("ru", "russia", "росси", "москв"),
+            "NL" to listOf("nl", "netherlands", "нидерланд", "амстердам"),
+            "DE" to listOf("de", "germany", "герман", "франкфурт"),
+            "US" to listOf("us", "usa", "united states", "сша"),
+            "UK" to listOf("uk", "gb", "britain", "великобрит"),
+            "MD" to listOf("md", "moldova", "молдов"),
+            "TR" to listOf("tr", "turkey", "турци"),
+            "SG" to listOf("sg", "singapore", "сингапур")
+        )
+        val region = regions.firstOrNull { (_, aliases) -> aliases.any { alias ->
+            if (alias.length == 2) Regex("(?<![a-z])" + alias + "(?![a-z])").containsMatchIn(name)
+            else name.contains(alias)
+        } }?.first ?: SubscriptionClient.deriveRegionFromAddress(server.address)
+        return flagFromRegion(region)
     }
 
     fun getSelectedServer(): Server? {
@@ -469,10 +983,59 @@ object RedShiftState {
     }
 
     fun removeServer(serverId: String) {
+        val wasActive = selectedServerId == serverId
+        val victim = servers.find { it.id == serverId }
+        debugLog("remove id=$serverId name='${victim?.name ?: "-"}' wasActive=$wasActive state=$connectionState")
+        victim?.let { server ->
+            // Subscription entries need an exclusion because the publisher can send them again.
+            if (server.subscriptionUrl.startsWith("http://") || server.subscriptionUrl.startsWith("https://")) hideServer(server)
+            scope.launch { settingsStore?.removeCachedServer(server.id, server.subExtra) }
+        }
         servers.removeAll { it.id == serverId }
         recentServers.removeAll { it.id == serverId }
-        if (selectedServerId == serverId) {
+        if (wasActive) {
+            // The tunnel is (or is still starting) on the server the user just deleted, so
+            // tear it down — otherwise the session keeps running on a server that is gone.
+            if (connectionState == ConnectionState.CONNECTED ||
+                connectionState == ConnectionState.CONNECTING
+            ) {
+                debugLog("remove: active server deleted, disconnecting")
+                disconnectVpnInternal()
+            }
             selectedServerId = servers.firstOrNull()?.id ?: ""
+            debugLog("remove: selectedServerId -> '${selectedServerId}'")
+            scope.launch { settingsStore?.setSelectedServerId(selectedServerId) }
+        }
+    }
+
+    /**
+     * Records a server in the deleted set so the cache loader and the subscription importer
+     * skip it from now on. The server list is rebuilt from those two sources on every launch
+     * and refresh, so a plain removal from memory would only last until the next resync.
+     */
+    private fun hideServer(s: Server) {
+        val keys = hideKeysFor(s)
+        val next = hiddenServers + keys
+        debugLog("hide name='${s.name}' keys=$keys hiddenCount=${next.size}")
+        hiddenServers = next
+        scope.launch { settingsStore?.setHiddenServers(next) }
+    }
+
+    /**
+     * Brings back every server the user deleted. The hidden set is cleared and persisted
+     * first, then the list is rebuilt: from the cache (covers locally imported servers) and,
+     * when a subscription link is set, by re-fetching it — a subscription refresh drops
+     * hidden rows from the cache, so those only come back over the network.
+     */
+    fun restoreHiddenServers() {
+        if (hiddenServers.isEmpty()) return
+        debugLog("restore hidden=${hiddenServers.size} keys=$hiddenServers")
+        hiddenServers = emptySet()
+        scope.launch {
+            settingsStore?.setHiddenServers(emptySet())
+            loadCachedServers()
+            val url = subscriptionUrl
+            if (url.startsWith("http")) importSubscription(url)
         }
     }
 
@@ -485,129 +1048,358 @@ object RedShiftState {
         }
     }
 
+    /** Selects a server and persists the choice so the Home card survives restarts. */
+    fun selectServer(serverId: String) {
+        debugLog("select id=$serverId state=$connectionState")
+        selectedServerId = serverId
+        scope.launch { settingsStore?.setSelectedServerId(serverId) }
+    }
+
     fun toggleVpn() {
-        Log.e("RedShiftVPN", "toggleVpn() called, state=$connectionState")
+        debugLog("toggle state=$connectionState")
+        val ctx = appContext
+        if (ctx == null) {
+            debugLog("toggle aborted: appContext is null")
+            return
+        }
+        when (connectionState) {
+            ConnectionState.DISCONNECTED -> startVpnInternal()
+            ConnectionState.CONNECTED, ConnectionState.CONNECTING -> disconnectVpnInternal()
+        }
+    }
+
+    /**
+     * Switches the selected server (or retries the current one) from any state.
+     *
+     * A plain [toggleVpn] cannot express this: while CONNECTING it would just disconnect,
+     * and while CONNECTED it would do nothing at all. Tapping a server row has to mean
+     * "give me a tunnel on this server", so the old attempt is torn down first and the new
+     * one starts only after that teardown finished — otherwise the service still holds the
+     * olcRTC room / SOCKS port and the fresh attempt fails on top of the dying one.
+     */
+    fun restartConnection() {
+        debugLog("restart state=$connectionState server='$selectedServerId'")
+        when (connectionState) {
+            ConnectionState.DISCONNECTED -> startVpnInternal()
+            ConnectionState.CONNECTED, ConnectionState.CONNECTING -> {
+                isSwitchingServer = true
+                val token = ++switchToken
+                debugLog("restart: stop then start, token=$token")
+                stopVpnInternal(restartAfterStop = true, restartToken = token)
+            }
+        }
+    }
+
+    /** Tears the current session down (generation bump + native stop off the UI thread). */
+    fun disconnectFromSystem() {
+        disconnectVpnInternal()
+    }
+
+    fun onSystemVpnRevoked() {
+        isSwitchingServer = false
+        switchToken++
+        vpnGeneration++
+        connectJob?.cancel()
+        connectJob = null
+        connectionState = ConnectionState.DISCONNECTED
+        lastConfig = ""
+        stopTelemetrySimulation()
+        scope.launch(Dispatchers.IO) { singBoxManager?.stop() }
+    }
+
+    fun updateAutoReconnect(enabled: Boolean) {
+        autoReconnect = enabled
+        scope.launch { settingsStore?.setAutoReconnect(enabled) }
+    }
+
+    private fun disconnectVpnInternal() {
+        connectivityStatus = ConnectivityStatus.NOT_CHECKED
+        debugLog("disconnect state=$connectionState")
+        isSwitchingServer = false
+        switchToken++
+        stopVpnInternal(restartAfterStop = false, restartToken = 0L)
+    }
+
+    private fun stopVpnInternal(restartAfterStop: Boolean, restartToken: Long) {
+        debugLog("stop gen=${vpnGeneration + 1} restart=$restartAfterStop token=$restartToken")
+        // Bump generation first: any in-flight connect coroutine sees the
+        // new value at its next suspension point and aborts, so native
+        // start()/stop() can never run concurrently.
+        vpnGeneration++
+        connectJob?.cancel()
+        connectJob = null
+        connectionState = ConnectionState.DISCONNECTED
+        lastConfig = ""
+        val ctx = appContext
+        if (ctx != null) {
+            val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
+                action = RedShiftVpnService.ACTION_DISCONNECT
+            }
+            try {
+                ctx.startService(intent)
+            } catch (e: Exception) {
+                debugLog("disconnect service start failed: ${e.message}")
+            }
+        }
+        // stop() joins the native run loop and can block for a while on some devices;
+        // never run it on the main thread (would ANR the UI). The previous teardown is
+        // cancelled first so two native stop() calls can never overlap.
+        teardownJob?.cancel()
+        teardownJob = scope.launch(Dispatchers.IO) {
+            singBoxManager?.stop()
+            if (restartAfterStop) {
+                // The service handles ACTION_DISCONNECT on its own thread; a short grace
+                // period lets it release the olcRTC runtime (and 127.0.0.1:8788) before
+                // we ask for a brand new tunnel.
+                delay(600)
+                if (isSwitchingServer && switchToken == restartToken &&
+                    connectionState == ConnectionState.DISCONNECTED
+                ) {
+                    debugLog("restart: grace over, starting (token=$restartToken)")
+                    isSwitchingServer = false
+                    startVpnInternal()
+                } else {
+                    debugLog("restart cancelled: switching=$isSwitchingServer token=$switchToken/$restartToken state=$connectionState")
+                }
+            }
+        }
+        RedShiftVpnService.resetTunState()
+        stopTelemetrySimulation()
+    }
+
+    /**
+     * Starts a tunnel on the currently selected server. VpnService consent is requested
+     * first (without VpnService.prepare() Builder.establish() returns null on most OEMs),
+     * then the service brings the TUN up and sing-box is attached to its fd.
+     */
+    private fun startVpnInternal() {
         val ctx = appContext
         if (ctx == null) {
             Log.e("RedShiftVPN", "appContext is null")
             return
         }
-        when (connectionState) {
-            ConnectionState.DISCONNECTED -> {
-                connectionState = ConnectionState.CONNECTING
-                Log.e("RedShiftVPN", "Starting VPN connect sequence")
+            // First time the user triggers a connection the system must be asked
+            // to consent to this app using VpnService; without VpnService.prepare()
+            // Builder.establish() instantly returns null on most OEM builds.
+            val consent = VpnService.prepare(ctx)
+            if (consent != null) {
+                try {
+                    val act = currentActivity
+                    if (act != null) {
+                        act.startActivityForResult(consent, VPN_CONSENT_REQUEST)
+                    } else {
+                        consent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        ctx.startActivity(consent)
+                    }
+                    Log.e("RedShiftVPN", "VPN consent requested")
+                } catch (e: Exception) {
+                    Log.e("RedShiftVPN", "VPN consent activity failed: ${e.message}")
+                }
+                return
+            }
+            connectionState = ConnectionState.CONNECTING
+            vpnError = null
+            Log.e("RedShiftVPN", "Starting VPN connect sequence")
 
-                scope.launch {
-                    try {
-                        debugLog("coroutine started, state=$connectionState")
-                        val server = getSelectedServer()
-                        debugLog("server=${server?.name}, proto=${server?.protocol}")
+            // Mark this connect attempt with the current generation. Any later
+            // toggle (disconnect) bumps vpnGeneration, and every suspension
+            // point below re-checks it so a stale connect coroutine bails out
+            // instead of racing the native stop().
+            val gen = vpnGeneration
+            connectJob?.cancel()
+            connectJob = scope.launch {
+                try {
+                    debugLog("coroutine started, state=$connectionState")
+                    if (gen != vpnGeneration) return@launch
+                    val first = getSelectedServer()
+                    debugLog("server=${first?.name}, proto=${first?.protocol}")
 
-                        if (server == null) {
-                            debugLog("server is null, abort")
-                            connectionState = ConnectionState.DISCONNECTED
-                            return@launch
-                        }
-                        markServerUsed(server.id)
-
-                        val ok = singBoxManager?.ensureBinary() == true
-                        debugLog("binary ok=$ok")
-                        if (!ok) {
-                            connectionState = ConnectionState.DISCONNECTED
-                            return@launch
-                        }
-
-                        val sub = server.toSubServer()
-                        val ctx = appContext
-                        val filesDir = ctx?.filesDir?.absolutePath ?: ""
-                        try {
-                            if (ctx != null && filesDir.isNotEmpty()) {
-                                val srsFile = java.io.File(filesDir, "geoip-ru.srs")
-                                if (!srsFile.exists()) {
-                                    ctx.assets.open("geoip-ru.srs").use { input ->
-                                        srsFile.outputStream().use { output -> input.copyTo(output) }
-                                    }
-                                }
-                            }
-                        } catch (_: Exception) {}
-                        debugLog("generating config...")
-                        val config = withContext(Dispatchers.IO) { SingBoxConfigGenerator().generateConfig(sub, SingBoxManager.SOCKS_PORT, filesDir) }
-                        debugLog("config length=${config.length}")
-                        lastConfig = config
-
-                        val isAwg = SingBoxConfigGenerator().isAmneziaProtocol(sub)
-
-                        debugLog("TUN fd passing for all protocols")
-                        val intent1 = Intent(appContext, RedShiftVpnService::class.java).apply {
-                            action = RedShiftVpnService.ACTION_CONNECT_AWG
-                        }
-                        appContext?.startService(intent1)
-                        var tunFd = -1
-                        // Race fix: on some OEMs (vivo) VpnService.Builder.establish() takes
-                        // ~10s, so poll up to 40s (was 10s) before giving up on the fd.
-                        // Must run off the main thread — Thread.sleep here would ANR the UI.
-                        tunFd = withContext(Dispatchers.IO) {
-                            var fd = -1
-                            for (i in 1..160) {
-                                Thread.sleep(250)
-                                fd = RedShiftVpnService.getLastTunFdRaw()
-                                if (fd > 0) break
-                            }
-                            fd
-                        }
-                        debugLog("TUN fd=$tunFd after wait")
-                        if (tunFd > 0) {
-                            val started = withContext(Dispatchers.IO) { singBoxManager?.startWithTunFd(config, tunFd) == true }
-                            debugLog("sing-box started with tun fd=$started")
-                            if (!started) {
-                                // Fail-close: never fall back to mixed SOCKS (would leak UDP/DNS).
-                                debugLog("sing-box TUN failed, fail-close (no mixed fallback)")
-                                singBoxManager?.stop()
-                                RedShiftVpnService.resetTunState()
-                                appContext?.startService(Intent(appContext, RedShiftVpnService::class.java).apply {
-                                    action = RedShiftVpnService.ACTION_DISCONNECT
-                                })
-                                connectionState = ConnectionState.DISCONNECTED
-                                return@launch
-                            }
-                        } else {
-                            // TUN fd never arrived — fail-close instead of leaking via mixed SOCKS.
-                            debugLog("TUN fd not available, fail-close (no mixed fallback)")
-                            singBoxManager?.stop()
-                            RedShiftVpnService.resetTunState()
-                            appContext?.startService(Intent(appContext, RedShiftVpnService::class.java).apply {
-                                action = RedShiftVpnService.ACTION_DISCONNECT
-                            })
-                            connectionState = ConnectionState.DISCONNECTED
-                            return@launch
-                        }
-
-                        connectionState = ConnectionState.CONNECTED
-                        debugLog("setting CONNECTED")
-                        totalDataUsedMb = 0.0
-                        startSessionTimer()
-                    } catch (e: Exception) {
-                        debugLog("EXCEPTION: ${e.javaClass.simpleName}: ${e.message}\n${e.stackTraceToString()}")
+                    if (first == null) {
+                        debugLog("server is null, abort")
                         connectionState = ConnectionState.DISCONNECTED
+                        return@launch
+                    }
+
+                    val ok = singBoxManager?.ensureBinary() == true
+                    debugLog("binary ok=$ok")
+                    if (!ok) {
+                        connectionState = ConnectionState.DISCONNECTED
+                        return@launch
+                    }
+
+                    val candidates = if (autoSelectBestServer) olcrtcFailoverCandidates(first) else listOf(first)
+                    for ((index, candidate) in candidates.withIndex()) {
+                        if (gen != vpnGeneration) return@launch
+                        if (index > 0) {
+                            debugLog(
+                                "olcrtc failover ${index}/${candidates.size - 1}: " +
+                                    "${candidate.name} after ${candidates[index - 1].name}"
+                            )
+                            // The previous attempt's olcRTC runtime must release
+                            // 127.0.0.1:8788 before the next one can bind it.
+                            delay(800)
+                            if (gen != vpnGeneration) return@launch
+                        }
+                        markServerUsed(candidate.id)
+                        settingsStore?.setSelectedServerId(candidate.id)
+                        val connected = connectAttempt(candidate, gen) { gen != vpnGeneration || !isActive }
+                        if (connected) {
+                            selectedServerId = candidate.id
+                            debugLog("connected via ${candidate.name} (attempt ${index + 1}/${candidates.size})")
+                            return@launch
+                        }
+                        debugLog("attempt failed: ${candidate.name}")
+                    }
+                    debugLog("all ${candidates.size} attempt(s) failed")
+                    connectionState = ConnectionState.DISCONNECTED
+                } catch (e: Exception) {
+                    debugLog("EXCEPTION: ${e.javaClass.simpleName}: ${e.message}\n${e.stackTraceToString()}")
+                    connectionState = ConnectionState.DISCONNECTED
+                }
+            }
+    }
+
+    /**
+     * One full connect attempt on [server]: generate the config, hand the TUN fd to the
+     * VPN service, attach sing-box. Returns true once CONNECTED.
+     *
+     * A failed attempt tears everything down but deliberately leaves connectionState
+     * untouched, so the olcRTC failover loop can try the next room before giving up.
+     */
+    private suspend fun connectAttempt(
+        server: Server,
+        gen: Long,
+        isCancelled: () -> Boolean,
+    ): Boolean {
+        val sub = server.toSubServer()
+        val ctx = appContext
+        val filesDir = ctx?.filesDir?.absolutePath ?: ""
+        try {
+            if (ctx != null && filesDir.isNotEmpty()) {
+                for (assetName in arrayOf("geoip-ru.srs", "geoip-cn.srs")) {
+                    val srsFile = java.io.File(filesDir, assetName)
+                    if (!srsFile.exists()) {
+                        ctx.assets.open(assetName).use { input ->
+                            srsFile.outputStream().use { output -> input.copyTo(output) }
+                        }
                     }
                 }
             }
-            ConnectionState.CONNECTED, ConnectionState.CONNECTING -> {
-                connectionState = ConnectionState.DISCONNECTED
-                lastConfig = ""
-                val intent = Intent(ctx, RedShiftVpnService::class.java).apply {
-                    action = RedShiftVpnService.ACTION_DISCONNECT
-                }
-                ctx.startService(intent)
-                // stop() joins the native run loop and can block for a while on some
-                // devices; never run it on the main thread (would ANR the UI).
-                scope.launch(Dispatchers.IO) {
-                    singBoxManager?.stop()
-                }
-                RedShiftVpnService.resetTunState()
-                stopTelemetrySimulation()
+        } catch (_: Exception) {}
+        debugLog("generating config for ${server.name}...")
+        // Domain split only makes sense when the user selected the
+        // "Domains" mode and the toggle is on. In "Apps" mode the TUN
+        // allow/deny (EXTRA_SPLIT_APPS) handles it, and a stale domain
+        // list from a previous session must not leak into routing.
+        val domainSplitEnabled = splitTunnelEnabled && !splitTunnelByApps
+        val config = withContext(Dispatchers.IO) {
+            SingBoxConfigGenerator().generateConfig(
+                sub,
+                SingBoxManager.SOCKS_PORT,
+                filesDir,
+                if (domainSplitEnabled) splitDomains else emptyList(),
+                domainSplitEnabled && splitTunnelOnly,
+                routingMode.name.lowercase(),
+                // RU-direct is an always-on behaviour (original app), CN is off.
+                bypassRussia = true,
+                bypassChina = false,
+                blockAds
+            )
+        }
+        debugLog("config length=${config.length}")
+        lastConfig = config
+
+        if (isCancelled()) {
+            debugLog("connect aborted after config gen (generation changed)")
+            return false
+        }
+
+        debugLog("TUN fd passing for all protocols")
+        val intent1 = Intent(appContext, RedShiftVpnService::class.java).apply {
+            action = RedShiftVpnService.ACTION_CONNECT_AWG
+            // App-based split only when the user actually picked the
+            // "Apps" mode: otherwise a stale app list from a previous
+            // session would filter the TUN behind the user's back.
+            if (splitTunnelEnabled && splitTunnelByApps && splitApps.isNotEmpty()) {
+                putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS, splitApps.toTypedArray())
+                putExtra(RedShiftVpnService.EXTRA_SPLIT_APPS_ONLY, splitTunnelOnly)
+            }
+            if (isOlcrtcServer(server)) {
+                putExtra(RedShiftVpnService.EXTRA_OLCRTC_URI, server.subExtra.ifBlank { server.address })
+            }
+            val srvName = server.name
+            if (srvName.isNotBlank()) {
+                putExtra(RedShiftVpnService.EXTRA_SERVER_LABEL, srvName)
+            }
+            putExtra(RedShiftVpnService.EXTRA_NOTIFICATIONS, vpnNotification)
+        }
+        RedShiftVpnService.clearStartError()
+        appContext?.startService(intent1)
+        // Race fix: on some OEMs (vivo) VpnService.Builder.establish() takes
+        // ~10s, so poll up to 40s (was 10s) before giving up on the fd.
+        // Must run off the main thread — Thread.sleep here would ANR the UI.
+        val tunFd = withContext(Dispatchers.IO) {
+            var fd = -1
+            for (i in 1..240) {
+                if (isCancelled() || gen != vpnGeneration || RedShiftVpnService.lastStartError != null) break
+                Thread.sleep(250)
+                fd = RedShiftVpnService.getLastTunFdRaw()
+                if (fd > 0) break
+            }
+            fd
+        }
+        debugLog("TUN fd=$tunFd after wait")
+        if (isCancelled() || gen != vpnGeneration) {
+            debugLog("connect aborted after TUN wait (generation changed)")
+            return false
+        }
+        if (tunFd <= 0) {
+            // TUN fd never arrived — fail-close instead of leaking via mixed SOCKS.
+            debugLog("TUN fd not available, fail-close (no mixed fallback)")
+            vpnError = when (RedShiftVpnService.lastFailureCode) {
+                "timeout" -> "timeout"
+                "invalid-profile" -> "invalid-profile"
+                "network-permission" -> "network-permission"
+                "tun-error" -> "tun-error"
+                else -> "engine-error"
+            }
+            teardownFailedAttempt()
+            return false
+        }
+        val started = withContext(Dispatchers.IO) { singBoxManager?.startWithTunFd(config, tunFd) == true }
+        debugLog("sing-box started with tun fd=$started")
+        if (!started) {
+            // Fail-close: never fall back to mixed SOCKS (would leak UDP/DNS).
+            debugLog("sing-box TUN failed, fail-close (no mixed fallback)")
+            vpnError = "tun-error"
+            teardownFailedAttempt()
+            return false
+        }
+
+        connectionState = ConnectionState.CONNECTED
+        connectivityStatus = ConnectivityStatus.CHECKING
+        scope.launch {
+            var reachable = TunnelConnectivity.check()
+            if (!reachable && gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
+                delay(2500)
+                reachable = TunnelConnectivity.check()
+            }
+            if (gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
+                connectivityStatus = if (reachable) ConnectivityStatus.REACHABLE else ConnectivityStatus.UNCONFIRMED
             }
         }
+        debugLog("setting CONNECTED")
+        totalDataUsedMb = 0.0
+        startSessionTimer()
+        return true
+    }
+
+    private fun teardownFailedAttempt() {
+        singBoxManager?.stop()
+        RedShiftVpnService.resetTunState()
+        appContext?.startService(Intent(appContext, RedShiftVpnService::class.java).apply {
+            action = RedShiftVpnService.ACTION_DISCONNECT
+        })
     }
 
     private fun startSessionTimer() {
@@ -643,12 +1435,20 @@ object RedShiftState {
 
                 val cfg = lastConfig
                 if (cfg.isNotBlank() && singBoxManager?.isRunning() != true) {
+                    if (!autoReconnect) {
+                        disconnectVpnInternal()
+                        break
+                    }
                     debugLog("watchdog: sing-box died, restarting")
                     val fd = com.example.service.RedShiftVpnService.getLastTunFdRaw()
                     val ok = if (fd > 0) {
                         kotlinx.coroutines.withContext(Dispatchers.IO) { singBoxManager?.startWithTunFd(cfg, fd) == true }
                     } else false
                     debugLog("watchdog: restart ok=$ok")
+                    if (!ok) {
+                        disconnectVpnInternal()
+                        break
+                    }
                 }
             }
             monitor.stop()
@@ -662,50 +1462,114 @@ object RedShiftState {
         sessionDurationSeconds = 0L
     }
 
+    private var importGeneration = 0L
+
+    private fun keepActiveServerDuringImport(previous: Server?, url: String) {
+        if (connectionState == ConnectionState.DISCONNECTED || previous == null || previous.subscriptionUrl != url) return
+        val index = servers.indexOfFirst {
+            it.subscriptionUrl == url && (it.id == previous.id || it.sameEndpointAs(previous) || it.sameNamedAs(previous))
+        }
+        if (index >= 0) servers[index] = previous else servers.add(previous)
+    }
+
+    fun selectSubscription(url: String) {
+        if (url !in subscriptionUrls || url == subscriptionUrl || isImporting) return
+        importGeneration++
+        subscriptionPlan = ""
+        subscriptionExpiry = ""
+        scope.launch {
+            settingsStore?.setTariffName("")
+            settingsStore?.setSubscriptionExpiry("")
+            settingsStore?.setSubscriptionExpiryTs(0L)
+            settingsStore?.setSubscriptionUrl(url)
+        }
+    }
+
+    fun removeCurrentSubscription() {
+        val url = subscriptionUrl
+        val store = settingsStore ?: return
+        if (url.isBlank() || isImporting) return
+        scope.launch {
+            try {
+                if (!store.removeSubscription(url)) return@launch
+                importGeneration++
+                val remainingUrls = store.subscriptionUrls.first()
+                appContext?.let {
+                    if (remainingUrls.isEmpty()) AutoRefreshScheduler.cancel(it)
+                    ExpiryReminderScheduler.cancel(it)
+                }
+                val removedSelected = servers.any { it.subscriptionUrl == url && it.id == selectedServerId }
+                if (removedSelected && connectionState != ConnectionState.DISCONNECTED) disconnectVpnInternal()
+                servers.removeAll { it.subscriptionUrl == url }
+                recentServers.removeAll { it.subscriptionUrl == url }
+                subscriptions.removeAll { it.url == url }
+                subscriptionUrl = store.subscriptionUrl.first()
+                subscriptionPlan = ""
+                subscriptionExpiry = ""
+                if (removedSelected) {
+                    selectedServerId = servers.firstOrNull()?.id.orEmpty()
+                    store.setSelectedServerId(selectedServerId)
+                }
+            } catch (e: Exception) {
+                debugLog("subscription removal failed: ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
     fun importSubscription(url: String) {
-        if (url.isBlank()) return
+        if (url.isBlank() || isImporting) return
+        val generation = ++importGeneration
         isImporting = true
         importError = null
 
         scope.launch {
+          try {
             val client = SubscriptionClient()
             val result = client.fetchSubscription(url)
 
             if (result.error.isNotEmpty()) {
                 importError = result.error
-                debugLog("import FAILED: ${result.error}")
+                debugLog("import failed")
             } else if (result.servers.isNotEmpty()) {
-                val isSingleCustomLink = url.startsWith("vpn://") || url.startsWith("tt://")
+                val isSingleCustomLink = SubscriptionClient.isDirectProfile(url)
+                val previousSelected = getSelectedServer()
                 val dbgFirst = result.servers.first()
                 debugLog("import OK: n=${result.servers.size} first=${dbgFirst.protocol} ${dbgFirst.address}:${dbgFirst.port} psk=${dbgFirst.presharedKey.isNotEmpty()} priv=${dbgFirst.privateKey.isNotEmpty()} srvPub=${dbgFirst.serverPublicKey.isNotEmpty()} awgParams=${if (dbgFirst.awgParams.isBlank()) "-" else "yes"}")
 
                 // A single custom node (Amnezia vpn:// deeplink et al.) is NOT a
                 // subscription: adding it must never touch the profile/user id or the
                 // cached server list of an already imported subscription.
-                if (isSingleCustomLink) {
-                    addServersFromSubResult(result.servers, url)
-                    val first = result.servers.first()
-                    if (servers.any { it.id == first.id }) {
-                        selectedServerId = first.id
-                        settingsStore?.let { it.setSelectedServerId(first.id) }
-                    }
-                    markServerUsed(first.id)
-                    isImporting = false
-                    return@launch
+if (isSingleCustomLink) {
+                // Re-importing a directly entered link is an explicit request to add it again.
+                val restored = hiddenServers - result.servers.flatMap { hideKeysForParts(it.id, it.name, it.protocol, it.address, it.port) }.toSet()
+                hiddenServers = restored
+                settingsStore?.setHiddenServers(restored)
+                addServersFromSubResult(result.servers, url)
+                keepActiveServerDuringImport(previousSelected, url)
+                cacheServersToStore(result.servers, url)
+                val first = result.servers.first()
+                if (connectionState == ConnectionState.DISCONNECTED && servers.any { it.id == first.id }) {
+                    selectedServerId = first.id
+                    settingsStore?.let { it.setSelectedServerId(first.id) }
                 }
+                markServerUsed(first.id)
+                isImporting = false
+                return@launch
+            }
 
                 subscriptions.removeAll { it.url == url }
                 addServersFromSubResult(result.servers, url)
+                keepActiveServerDuringImport(previousSelected, url)
 
                 val first = result.servers.first()
-                if (servers.any { it.id == first.id }) {
+                if (connectionState == ConnectionState.DISCONNECTED && servers.any { it.id == first.id }) {
                     selectedServerId = first.id
                     settingsStore?.let { store ->
                         store.setSelectedServerId(first.id)
                     }
                 }
 
-                cacheServersToStore(result.servers)
+                cacheServersToStore(result.servers, url)
 
                 val profile = result.profileInfo
                 if (profile != null) {
@@ -731,37 +1595,26 @@ object RedShiftState {
                     }
                 }
 
+                // An opaque subscription token is not a Telegram ID. Only a numeric
+                // ID supplied by the URL or profile can be used for account lookups.
                 val userIdFromUrl = url.substringAfterLast("/").substringBefore("?").trim()
-                val numericUserId = userIdFromUrl.toIntOrNull()
-                if (profile == null || subscriptionPlan.isBlank() || subscriptionExpiry.isBlank() || numericUserId == null) {
-                    val resolvedUserId = when {
-                        numericUserId != null -> numericUserId
-                        else -> telegramToken.toIntOrNull()
+                val resolvedUserId = userIdFromUrl.toLongOrNull() ?: profile?.username?.trim()?.toLongOrNull()
+                if (resolvedUserId != null) {
+                    settingsStore?.setUserId(resolvedUserId.toString())
+                    if (profile != null) {
+                        telegramToken = resolvedUserId.toString()
+                        isLoggedIn = true
                     }
-                    if (resolvedUserId != null) {
-                        val user = apiClient.getUser(resolvedUserId)
-                        if (user != null) {
-                            userInfo = user
-                            telegramToken = resolvedUserId.toString()
-                            isLoggedIn = true
-                            user.subscription?.tariff?.let { subscriptionPlan = it }
-                            user.subscription?.expiresAt?.let { subscriptionExpiry = it }
-                        }
-                        val sub2 = apiClient.getSubscription(resolvedUserId)
-                        if (sub2 != null) {
-                            if (subscriptionPlan.isBlank()) subscriptionPlan = sub2.tariff
-                            if (subscriptionExpiry.isBlank()) {
-                                val exp = sub2.expiresAt.take(10)
-                                if (exp.isNotBlank() && exp != "N/A") subscriptionExpiry = exp
-                            }
-                        }
-                    }
-                    settingsStore?.setUserId(if (resolvedUserId != null) resolvedUserId.toString() else userIdFromUrl)
-                } else {
-                    settingsStore?.setUserId(userIdFromUrl)
                 }
+
                 settingsStore?.setTariffName(subscriptionPlan)
                 settingsStore?.setSubscriptionExpiry(subscriptionExpiry)
+                val finalTs = profile?.expiry?.takeIf { it > 0 }?.times(1000L)
+                    ?: expiresAtToMillis(subscriptionExpiry)
+                if (finalTs > 0) {
+                    settingsStore?.setSubscriptionExpiryTs(finalTs)
+                    com.example.service.ExpiryReminderScheduler.schedule(appContext!!)
+                }
 
                 val now = java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale.US).format(java.util.Date())
                 subscriptions.add(
@@ -787,55 +1640,129 @@ object RedShiftState {
                 }
 
                 subscriptionUrl = url
+                // The list and cache are already ready. Account enrichment is optional
+                // and must not keep the import sheet open while the API is slow.
+                if (resolvedUserId != null) refreshImportedAccount(resolvedUserId, url, generation)
                 pingAllServers()
             } else {
                 importError = "No servers found in subscription"
             }
 
+          } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+          } catch (e: Exception) {
+            importError = "Import failed"
+            debugLog("import failed: ${e.javaClass.simpleName}")
+          } finally {
             isImporting = false
+          }
         }
     }
 
-    private suspend fun cacheServersToStore(serverList: List<SubServer>) {
+    private fun refreshImportedAccount(id: Long, url: String, generation: Long) {
+        scope.launch {
+            val (user, sub) = coroutineScope {
+                val userRequest = async { apiClient.getUser(id) }
+                val subscriptionRequest = async { apiClient.getSubscription(id) }
+                userRequest.await() to subscriptionRequest.await()
+            }
+            if (generation != importGeneration || subscriptionUrl != url) return@launch
+            if (user != null) {
+                userInfo = user
+                telegramToken = id.toString()
+                isLoggedIn = true
+                user.subscription?.tariff?.let { subscriptionPlan = it }
+                user.subscription?.expiresAt?.let { subscriptionExpiry = it }
+            }
+            if (sub != null) {
+                if (subscriptionPlan.isBlank()) subscriptionPlan = sub.tariff
+                if (subscriptionExpiry.isBlank()) subscriptionExpiry = sub.expiresAt.take(10)
+            }
+            settingsStore?.setTariffName(subscriptionPlan)
+            settingsStore?.setSubscriptionExpiry(subscriptionExpiry)
+            val expiry = expiresAtToMillis(subscriptionExpiry)
+            if (expiry > 0) {
+                settingsStore?.setSubscriptionExpiryTs(expiry)
+                appContext?.let { ExpiryReminderScheduler.schedule(it) }
+            }
+        }
+    }
+
+    private suspend fun cacheServersToStore(serverList: List<SubServer>, subUrl: String) {
         val store = settingsStore ?: return
-        val serversJson = org.json.JSONArray()
-        for (s in serverList) {
-            serversJson.put(org.json.JSONObject().apply {
-                put("id", s.id)
-                put("name", s.name)
-                put("protocol", s.protocol)
-                put("address", s.address)
-                put("port", s.port)
-                put("flag", s.flag)
-                put("uuid", s.uuid)
-                put("password", s.password)
-                put("flow", s.flow)
-                put("encryption", s.encryption)
-                put("network", s.network)
-                put("tls", s.tls)
-                put("sni", s.sni)
-                put("publicKey", s.publicKey)
-                put("shortId", s.shortId)
-                put("fingerprint", s.fingerprint)
-                put("privateKey", s.privateKey)
-                put("presharedKey", s.presharedKey)
-                put("serverPublicKey", s.serverPublicKey)
-                put("localAddress", s.localAddress)
-                put("mtu", s.mtu)
-                put("awgParams", s.awgParams)
-                put("dns", s.dns)
-                put("path", s.path)
-                put("host", s.host)
-                put("extra", s.extra)
-                put("alpn", s.alpn)
-            })
+        // Merge: keep servers of other subscriptions, replace only this one's.
+        // Deduplicate within each source, while preserving independently imported
+        // subscriptions that happen to contain the same endpoint or display name.
+        repeat(5) {
+            val originalCache = store.cachedServersJson.first()
+            val serversJson = org.json.JSONArray()
+            val seen = HashSet<String>()
+            val hidden = store.hiddenServers.first()
+            run {
+                val existing = org.json.JSONArray(originalCache.ifBlank { "[]" })
+                for (i in 0 until existing.length()) {
+                    val obj = existing.getJSONObject(i)
+                    if (obj.optString("url") == subUrl) continue
+                    if (hideKeysForParts(
+                            obj.optString("id", ""), obj.optString("name", ""), obj.optString("protocol", ""),
+                            obj.optString("address", ""), obj.optInt("port", 0)
+                        ).any { it in hidden }
+                    ) {
+                        continue
+                    }
+                    val key = endpointKey(
+                        obj.optString("protocol", ""),
+                        obj.optString("address", ""),
+                        obj.optInt("port", 0)
+                    )
+                    if (key != null && !seen.add(obj.optString("url", "") + "|" + key)) {
+                        continue
+                    }
+                    serversJson.put(obj)
+                }
+            }
+            for (s in serverList) {
+                if (hideKeysForParts(s.id, s.name, s.protocol, s.address, s.port).any { it in hidden }) continue
+                val key = endpointKey(s.protocol, s.address, s.port)
+                if (key != null && !seen.add(subUrl + "|" + key)) continue
+                serversJson.put(org.json.JSONObject().apply {
+                    put("id", s.id)
+                    put("name", s.name)
+                    put("protocol", s.protocol)
+                    put("address", s.address)
+                    put("port", s.port)
+                    put("flag", s.flag)
+                    put("uuid", s.uuid)
+                    put("password", s.password)
+                    put("flow", s.flow)
+                    put("encryption", s.encryption)
+                    put("network", s.network)
+                    put("tls", s.tls)
+                    put("sni", s.sni)
+                    put("publicKey", s.publicKey)
+                    put("shortId", s.shortId)
+                    put("fingerprint", s.fingerprint)
+                    put("privateKey", s.privateKey)
+                    put("presharedKey", s.presharedKey)
+                    put("serverPublicKey", s.serverPublicKey)
+                    put("localAddress", s.localAddress)
+                    put("mtu", s.mtu)
+                    put("awgParams", s.awgParams)
+                    put("dns", s.dns)
+                    put("path", s.path)
+                    put("host", s.host)
+                    put("extra", s.extra)
+                    put("alpn", s.alpn)
+                    put("url", subUrl)
+                })
+            }
+            val finalJson = dedupeServerArray(serversJson)
+            if (store.saveCacheIfUnchanged(originalCache, finalJson.toString(), finalJson.length(), subUrl)) return
         }
-        store.setCachedServersJson(serversJson.toString())
-        store.setCachedServersCount(serverList.size)
-        store.setLastRefreshTime(System.currentTimeMillis())
+        throw IllegalStateException("Server cache changed repeatedly during import")
     }
 
-    fun login(tgId: Int) {
+    fun login(tgId: Long) {
         loginError = null
         isLoadingUser = true
 
@@ -850,6 +1777,11 @@ object RedShiftState {
                 settingsStore?.setUserId(tgId.toString())
                 settingsStore?.setTariffName(subscriptionPlan)
                 settingsStore?.setSubscriptionExpiry(subscriptionExpiry)
+                val ts = expiresAtToMillis(user.subscription?.expiresAt)
+                if (ts > 0) {
+                    settingsStore?.setSubscriptionExpiryTs(ts)
+                    com.example.service.ExpiryReminderScheduler.schedule(appContext!!)
+                }
             } else {
                 loginError = "User not found or API error"
                 isLoggedIn = false
@@ -858,7 +1790,7 @@ object RedShiftState {
         }
     }
 
-    fun refreshUserData(tgId: Int) {
+    fun refreshUserData(tgId: Long) {
         if (!isLoggedIn) return
         scope.launch {
             val user = apiClient.getUser(tgId)
@@ -868,6 +1800,11 @@ object RedShiftState {
                 subscriptionExpiry = user.subscription?.expiresAt ?: ""
                 settingsStore?.setTariffName(subscriptionPlan)
                 settingsStore?.setSubscriptionExpiry(subscriptionExpiry)
+                val ts = expiresAtToMillis(user.subscription?.expiresAt)
+                if (ts > 0) {
+                    settingsStore?.setSubscriptionExpiryTs(ts)
+                    com.example.service.ExpiryReminderScheduler.schedule(appContext!!)
+                }
             }
         }
     }

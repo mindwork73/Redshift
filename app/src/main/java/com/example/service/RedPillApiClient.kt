@@ -24,7 +24,7 @@ data class SubInfo(
 data class DeviceInfo(
     val id: Int,
     val subscriptionId: Int,
-    val userId: Int,
+    val userId: Long,
     val deviceIndex: Int,
     val deviceName: String,
     val region: String,
@@ -32,7 +32,7 @@ data class DeviceInfo(
 )
 
 data class UserInfo(
-    val userId: Int,
+    val userId: Long,
     val username: String,
     val createdAt: String,
     val subscription: SubInfo?,
@@ -52,6 +52,16 @@ data class ServerInfo(
     val endpoint: String,
     val publicKey: String,
     val isEnabled: Boolean
+)
+
+/**
+ * Balancer metric for one region, as returned by GET /api/v1/load.
+ * [active] is -1 when the server could not measure it (ssh to EU down) — callers then
+ * fall back to [devices]; [devices] is how many devices are issued on the region.
+ */
+data class RegionLoad(
+    val active: Int,
+    val devices: Int
 )
 
 class RedPillApiClient(
@@ -81,7 +91,7 @@ class RedPillApiClient(
         } catch (_: Exception) { false }
     }
 
-    suspend fun getProxy(userId: Int? = null): ProxyConfig? = withContext(Dispatchers.IO) {
+    suspend fun getProxy(userId: Long? = null): ProxyConfig? = withContext(Dispatchers.IO) {
         try {
             val url = if (userId != null) "$baseUrl/api/v1/proxy?user_id=$userId" else "$baseUrl/api/v1/proxy"
             val req = Request.Builder().url(url).build()
@@ -98,7 +108,7 @@ class RedPillApiClient(
         } catch (_: Exception) { null }
     }
 
-    suspend fun getUser(tgId: Int): UserInfo? = withContext(Dispatchers.IO) {
+    suspend fun getUser(tgId: Long): UserInfo? = withContext(Dispatchers.IO) {
         try {
             val req = Request.Builder().url("$baseUrl/api/v1/user/$tgId").build()
             val resp = client.newCall(req).execute()
@@ -106,7 +116,7 @@ class RedPillApiClient(
             val json = JSONObject(resp.body!!.string())
             val subJson = json.optJSONObject("subscription")
             UserInfo(
-                userId = json.getInt("user_id"),
+                userId = json.getLong("user_id"),
                 username = json.optString("username", ""),
                 createdAt = json.optString("created_at", ""),
                 subscription = subJson?.let { parseSubInfo(it) },
@@ -115,7 +125,7 @@ class RedPillApiClient(
         } catch (_: Exception) { null }
     }
 
-    suspend fun getSubscription(tgId: Int): SubInfo? = withContext(Dispatchers.IO) {
+    suspend fun getSubscription(tgId: Long): SubInfo? = withContext(Dispatchers.IO) {
         try {
             val req = Request.Builder().url("$baseUrl/api/v1/user/$tgId/subscription").build()
             val resp = client.newCall(req).execute()
@@ -125,7 +135,7 @@ class RedPillApiClient(
         } catch (_: Exception) { null }
     }
 
-    suspend fun getDevices(tgId: Int): List<DeviceInfo> = withContext(Dispatchers.IO) {
+    suspend fun getDevices(tgId: Long): List<DeviceInfo> = withContext(Dispatchers.IO) {
         try {
             val req = Request.Builder().url("$baseUrl/api/v1/user/$tgId/devices").build()
             val resp = client.newCall(req).execute()
@@ -137,7 +147,7 @@ class RedPillApiClient(
 
     // Admin
 
-    suspend fun adminGrant(userId: Int, tariff: String = "pro_1m", days: Int = 30, region: String = "nl"): JSONObject? = withContext(Dispatchers.IO) {
+    suspend fun adminGrant(userId: Long, tariff: String = "pro_1m", days: Int = 30, region: String = "nl"): JSONObject? = withContext(Dispatchers.IO) {
         try {
             val body = JSONObject().apply {
                 put("user_id", userId)
@@ -156,7 +166,7 @@ class RedPillApiClient(
         } catch (_: Exception) { null }
     }
 
-    suspend fun adminExtend(userId: Int, days: Int = 30): JSONObject? = withContext(Dispatchers.IO) {
+    suspend fun adminExtend(userId: Long, days: Int = 30): JSONObject? = withContext(Dispatchers.IO) {
         try {
             val body = JSONObject().apply {
                 put("user_id", userId)
@@ -173,7 +183,7 @@ class RedPillApiClient(
         } catch (_: Exception) { null }
     }
 
-    suspend fun adminRevoke(userId: Int): JSONObject? = withContext(Dispatchers.IO) {
+    suspend fun adminRevoke(userId: Long): JSONObject? = withContext(Dispatchers.IO) {
         try {
             val body = JSONObject().apply { put("user_id", userId) }
             val req = Request.Builder()
@@ -187,7 +197,7 @@ class RedPillApiClient(
         } catch (_: Exception) { null }
     }
 
-    suspend fun adminReissue(userId: Int, deviceIndex: Int = 0, region: String = "nl"): JSONObject? = withContext(Dispatchers.IO) {
+    suspend fun adminReissue(userId: Long, deviceIndex: Int = 0, region: String = "nl"): JSONObject? = withContext(Dispatchers.IO) {
         try {
             val body = JSONObject().apply {
                 put("user_id", userId)
@@ -254,6 +264,32 @@ class RedPillApiClient(
         } catch (_: Exception) { emptyList() }
     }
 
+    /**
+     * GET /api/v1/load → {"nl": {"active": 41, "devices": 6}, "eu1": {...}}.
+     *
+     * Always degrades to an empty map: the balancer must keep working when
+     * api.redpillcloud.ru is unreachable, it just falls back to ranking by ping.
+     */
+    suspend fun getLoad(): Map<String, RegionLoad> = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder().url("$baseUrl/api/v1/load").build()
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return@withContext emptyMap()
+            val json = JSONObject(resp.body!!.string())
+            val out = HashMap<String, RegionLoad>()
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val obj = json.optJSONObject(key) ?: continue
+                out[key] = RegionLoad(
+                    active = obj.optInt("active", -1),
+                    devices = obj.optInt("devices", 0)
+                )
+            }
+            out
+        } catch (_: Exception) { emptyMap() }
+    }
+
     private fun parseSubInfo(json: JSONObject): SubInfo {
         val devicesArr = json.optJSONArray("devices")
         val devices = if (devicesArr != null) {
@@ -274,7 +310,7 @@ class RedPillApiClient(
     private fun parseDeviceInfo(json: JSONObject) = DeviceInfo(
         id = json.getInt("id"),
         subscriptionId = json.optInt("subscription_id", 0),
-        userId = json.getInt("user_id"),
+        userId = json.getLong("user_id"),
         deviceIndex = json.getInt("device_index"),
         deviceName = json.optString("device_name", ""),
         region = json.optString("region", ""),
