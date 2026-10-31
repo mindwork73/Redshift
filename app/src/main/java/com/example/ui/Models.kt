@@ -8,10 +8,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import com.example.BuildConfig
 import com.example.service.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
 import android.net.Uri
 import android.os.PowerManager
 
@@ -20,6 +22,8 @@ enum class ConnectionState {
     CONNECTING,
     CONNECTED
 }
+
+enum class ConnectivityStatus { NOT_CHECKED, CHECKING, REACHABLE, UNCONFIRMED }
 
 enum class RoutingMode {
     GLOBAL,
@@ -131,6 +135,8 @@ object RedShiftState {
     var subscriptionPlan by mutableStateOf("")
     var subscriptionExpiry by mutableStateOf("")
     var subscriptionUrl by mutableStateOf("")
+    var subscriptionUrls by mutableStateOf<List<String>>(emptyList())
+    var connectivityStatus by mutableStateOf(ConnectivityStatus.NOT_CHECKED)
 
     var isImporting by mutableStateOf(false)
     var importError by mutableStateOf<String?>(null)
@@ -300,40 +306,40 @@ object RedShiftState {
 private fun loadCachedServers() {
         val store = settingsStore ?: return
         scope.launch {
-            val json = store.getBlockingCachedServersJson()
-            // Read blocking here: this runs during init, before the reactive collector in
-            // loadFromSettings() has had a chance to populate hiddenServers.
-            val hidden = store.getBlockingHiddenServers()
-            debugLog("cache load: json=${json.length} hidden=${hidden.size} keys=$hidden")
-            if (json.isNotBlank()) {
-                var loaded = 0
-                try {
-                    val arr = org.json.JSONArray(json)
-                    // Heal the persisted cache if old builds stored duplicates
-                    // (two slices of the same subscription with different ids/IPs,
-                    // plus stale url-less rows from past imports).
-                    val deduped = dedupeServerArray(arr)
-                    for (i in 0 until deduped.length()) {
-                        val obj = deduped.getJSONObject(i)
-                        val candidate = serverFromCacheObject(obj)
-                        if (hideKeysFor(candidate).any { it in hidden }) {
-                            debugLog("cache hidden-skip name='${candidate.name}' addr=${candidate.address}:${candidate.port}")
-                            continue
-                        }
-                        if (servers.any { it.id == candidate.id || (it.subscriptionUrl == candidate.subscriptionUrl && (it.sameEndpointAs(candidate) || it.sameNamedAs(candidate))) }) continue
-                        servers.add(candidate)
-                        loaded++
-                    }
-                    if (deduped.length() < arr.length()) {
-                        store.setCachedServersJson(deduped.toString())
-                        store.setCachedServersCount(deduped.length())
-                        debugLog("cache heal: ${arr.length()} -> ${deduped.length()}")
-                    }
-                } catch (e: Exception) {
-                    debugLog("cache load failed ${e::class.simpleName}: ${e.message}")
-                }
-                debugLog("cache load done: loaded=$loaded total=${servers.size}")
+            if (connectionState == ConnectionState.DISCONNECTED && !isImporting) {
+                val json = store.cachedServersJson.first()
+                val hidden = store.hiddenServers.first()
+                if (connectionState == ConnectionState.DISCONNECTED && !isImporting) reconcileCachedServers(json, hidden)
             }
+        }
+    }
+
+    private suspend fun reconcileCachedServers(json: String, hidden: Set<String>) {
+        if (json.isBlank()) return
+        try {
+            val arr = dedupeServerArray(org.json.JSONArray(json))
+            val savedSelection = settingsStore?.selectedServerId?.first().orEmpty()
+            if (connectionState != ConnectionState.DISCONNECTED || isImporting) return
+            val previousSelected = getSelectedServer()
+            val updated = mutableListOf<Server>()
+            for (i in 0 until arr.length()) {
+                val candidate = serverFromCacheObject(arr.getJSONObject(i))
+                if (hideKeysFor(candidate).any { it in hidden }) continue
+                if (updated.any { it.id == candidate.id || (it.subscriptionUrl == candidate.subscriptionUrl && (it.sameEndpointAs(candidate) || it.sameNamedAs(candidate))) }) continue
+                updated.add(candidate)
+            }
+            servers.clear()
+            servers.addAll(updated)
+            if (previousSelected != null && updated.none { it.id == selectedServerId }) {
+                val replacement = updated.firstOrNull { it.subscriptionUrl == previousSelected.subscriptionUrl && (it.sameEndpointAs(previousSelected) || it.sameNamedAs(previousSelected)) }
+                selectedServerId = (replacement ?: updated.firstOrNull())?.id.orEmpty()
+                settingsStore?.setSelectedServerId(selectedServerId)
+            } else if (previousSelected == null && updated.isNotEmpty() && updated.none { it.id == selectedServerId }) {
+                selectedServerId = (updated.firstOrNull { it.id == savedSelection } ?: updated.first()).id
+                settingsStore?.setSelectedServerId(selectedServerId)
+            }
+        } catch (e: org.json.JSONException) {
+            debugLog("cache load failed: ${e.javaClass.simpleName}")
         }
     }
 
@@ -462,6 +468,15 @@ private fun loadCachedServers() {
     private fun loadFromSettings() {
         val store = settingsStore ?: return
         scope.launch {
+            combine(store.cachedServersJson, snapshotFlow { connectionState to isImporting }) { json, state -> json to state }
+                .collect { (json, state) ->
+                    if (state.first == ConnectionState.DISCONNECTED && !state.second) {
+                        val hidden = store.hiddenServers.first()
+                        if (connectionState == ConnectionState.DISCONNECTED && !isImporting) reconcileCachedServers(json, hidden)
+                    }
+                }
+        }
+        scope.launch {
             store.selectedServerId.collect { id ->
                 if (id.isNotEmpty()) selectedServerId = id
             }
@@ -470,6 +485,9 @@ private fun loadCachedServers() {
             store.subscriptionUrl.collect { url ->
                 subscriptionUrl = url
             }
+        }
+        scope.launch {
+            store.subscriptionUrls.collect { urls -> subscriptionUrls = urls.sorted() }
         }
         scope.launch {
             store.startOnBoot.collect { startOnBoot = it }
@@ -579,6 +597,22 @@ private fun loadCachedServers() {
         subscriptions.clear()
         routingRules.clear()
         importError = null
+    }
+
+    fun clearSavedServersAndSubscriptions() {
+        val store = settingsStore ?: return
+        if (isImporting) return
+        importGeneration++
+        if (connectionState != ConnectionState.DISCONNECTED) disconnectVpnInternal()
+        scope.launch {
+            store.clearSavedServersAndSubscriptions()
+            appContext?.let { AutoRefreshScheduler.cancel(it); ExpiryReminderScheduler.cancel(it) }
+            resetDefaultData()
+            subscriptionUrl = ""
+            selectedServerId = ""
+            subscriptionPlan = ""
+            subscriptionExpiry = ""
+        }
     }
 
     fun pingAllServers() {
@@ -1079,6 +1113,7 @@ private fun loadCachedServers() {
     }
 
     private fun disconnectVpnInternal() {
+        connectivityStatus = ConnectivityStatus.NOT_CHECKED
         debugLog("disconnect state=$connectionState")
         isSwitchingServer = false
         switchToken++
@@ -1342,6 +1377,17 @@ private fun loadCachedServers() {
         }
 
         connectionState = ConnectionState.CONNECTED
+        connectivityStatus = ConnectivityStatus.CHECKING
+        scope.launch {
+            var reachable = TunnelConnectivity.check()
+            if (!reachable && gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
+                delay(2500)
+                reachable = TunnelConnectivity.check()
+            }
+            if (gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
+                connectivityStatus = if (reachable) ConnectivityStatus.REACHABLE else ConnectivityStatus.UNCONFIRMED
+            }
+        }
         debugLog("setting CONNECTED")
         totalDataUsedMb = 0.0
         startSessionTimer()
@@ -1418,6 +1464,27 @@ private fun loadCachedServers() {
 
     private var importGeneration = 0L
 
+    private fun keepActiveServerDuringImport(previous: Server?, url: String) {
+        if (connectionState == ConnectionState.DISCONNECTED || previous == null || previous.subscriptionUrl != url) return
+        val index = servers.indexOfFirst {
+            it.subscriptionUrl == url && (it.id == previous.id || it.sameEndpointAs(previous) || it.sameNamedAs(previous))
+        }
+        if (index >= 0) servers[index] = previous else servers.add(previous)
+    }
+
+    fun selectSubscription(url: String) {
+        if (url !in subscriptionUrls || url == subscriptionUrl || isImporting) return
+        importGeneration++
+        subscriptionPlan = ""
+        subscriptionExpiry = ""
+        scope.launch {
+            settingsStore?.setTariffName("")
+            settingsStore?.setSubscriptionExpiry("")
+            settingsStore?.setSubscriptionExpiryTs(0L)
+            settingsStore?.setSubscriptionUrl(url)
+        }
+    }
+
     fun removeCurrentSubscription() {
         val url = subscriptionUrl
         val store = settingsStore ?: return
@@ -1426,13 +1493,17 @@ private fun loadCachedServers() {
             try {
                 if (!store.removeSubscription(url)) return@launch
                 importGeneration++
-                appContext?.let { AutoRefreshScheduler.cancel(it); ExpiryReminderScheduler.cancel(it) }
+                val remainingUrls = store.subscriptionUrls.first()
+                appContext?.let {
+                    if (remainingUrls.isEmpty()) AutoRefreshScheduler.cancel(it)
+                    ExpiryReminderScheduler.cancel(it)
+                }
                 val removedSelected = servers.any { it.subscriptionUrl == url && it.id == selectedServerId }
                 if (removedSelected && connectionState != ConnectionState.DISCONNECTED) disconnectVpnInternal()
                 servers.removeAll { it.subscriptionUrl == url }
                 recentServers.removeAll { it.subscriptionUrl == url }
                 subscriptions.removeAll { it.url == url }
-                subscriptionUrl = ""
+                subscriptionUrl = store.subscriptionUrl.first()
                 subscriptionPlan = ""
                 subscriptionExpiry = ""
                 if (removedSelected) {
@@ -1461,6 +1532,7 @@ private fun loadCachedServers() {
                 debugLog("import failed")
             } else if (result.servers.isNotEmpty()) {
                 val isSingleCustomLink = SubscriptionClient.isDirectProfile(url)
+                val previousSelected = getSelectedServer()
                 val dbgFirst = result.servers.first()
                 debugLog("import OK: n=${result.servers.size} first=${dbgFirst.protocol} ${dbgFirst.address}:${dbgFirst.port} psk=${dbgFirst.presharedKey.isNotEmpty()} priv=${dbgFirst.privateKey.isNotEmpty()} srvPub=${dbgFirst.serverPublicKey.isNotEmpty()} awgParams=${if (dbgFirst.awgParams.isBlank()) "-" else "yes"}")
 
@@ -1473,9 +1545,10 @@ if (isSingleCustomLink) {
                 hiddenServers = restored
                 settingsStore?.setHiddenServers(restored)
                 addServersFromSubResult(result.servers, url)
+                keepActiveServerDuringImport(previousSelected, url)
                 cacheServersToStore(result.servers, url)
                 val first = result.servers.first()
-                if (servers.any { it.id == first.id }) {
+                if (connectionState == ConnectionState.DISCONNECTED && servers.any { it.id == first.id }) {
                     selectedServerId = first.id
                     settingsStore?.let { it.setSelectedServerId(first.id) }
                 }
@@ -1486,9 +1559,10 @@ if (isSingleCustomLink) {
 
                 subscriptions.removeAll { it.url == url }
                 addServersFromSubResult(result.servers, url)
+                keepActiveServerDuringImport(previousSelected, url)
 
                 val first = result.servers.first()
-                if (servers.any { it.id == first.id }) {
+                if (connectionState == ConnectionState.DISCONNECTED && servers.any { it.id == first.id }) {
                     selectedServerId = first.id
                     settingsStore?.let { store ->
                         store.setSelectedServerId(first.id)
@@ -1617,69 +1691,75 @@ if (isSingleCustomLink) {
     private suspend fun cacheServersToStore(serverList: List<SubServer>, subUrl: String) {
         val store = settingsStore ?: return
         // Merge: keep servers of other subscriptions, replace only this one's.
-        // Dedupe across ALL urls by endpoint and logical name — same node in two
-        // slices must not double, stale url-less rows must not shadow current ones.
-        val serversJson = org.json.JSONArray()
-        val seen = HashSet<String>()
-        val hidden = store.getBlockingHiddenServers()
-        try {
-            val existing = org.json.JSONArray(store.getBlockingCachedServersJson())
-            for (i in 0 until existing.length()) {
-                val obj = existing.getJSONObject(i)
-                if (obj.optString("url") == subUrl) continue
-                if (hideKeysForParts(
-                        obj.optString("id", ""), obj.optString("name", ""), obj.optString("protocol", ""),
-                        obj.optString("address", ""), obj.optInt("port", 0)
-                    ).any { it in hidden }
-                ) continue
-                val key = endpointKey(
-                    obj.optString("protocol", ""),
-                    obj.optString("address", ""),
-                    obj.optInt("port", 0)
-                )
-                if (key != null && !seen.add(obj.optString("url", "") + "|" + key)) continue
-                serversJson.put(obj)
+        // Deduplicate within each source, while preserving independently imported
+        // subscriptions that happen to contain the same endpoint or display name.
+        repeat(5) {
+            val originalCache = store.cachedServersJson.first()
+            val serversJson = org.json.JSONArray()
+            val seen = HashSet<String>()
+            val hidden = store.hiddenServers.first()
+            run {
+                val existing = org.json.JSONArray(originalCache.ifBlank { "[]" })
+                for (i in 0 until existing.length()) {
+                    val obj = existing.getJSONObject(i)
+                    if (obj.optString("url") == subUrl) continue
+                    if (hideKeysForParts(
+                            obj.optString("id", ""), obj.optString("name", ""), obj.optString("protocol", ""),
+                            obj.optString("address", ""), obj.optInt("port", 0)
+                        ).any { it in hidden }
+                    ) {
+                        continue
+                    }
+                    val key = endpointKey(
+                        obj.optString("protocol", ""),
+                        obj.optString("address", ""),
+                        obj.optInt("port", 0)
+                    )
+                    if (key != null && !seen.add(obj.optString("url", "") + "|" + key)) {
+                        continue
+                    }
+                    serversJson.put(obj)
+                }
             }
-        } catch (_: Exception) {}
-        for (s in serverList) {
-            if (hideKeysForParts(s.id, s.name, s.protocol, s.address, s.port).any { it in hidden }) continue
-            val key = endpointKey(s.protocol, s.address, s.port)
-            if (key != null && !seen.add(subUrl + "|" + key)) continue
-            serversJson.put(org.json.JSONObject().apply {
-                put("id", s.id)
-                put("name", s.name)
-                put("protocol", s.protocol)
-                put("address", s.address)
-                put("port", s.port)
-                put("flag", s.flag)
-                put("uuid", s.uuid)
-                put("password", s.password)
-                put("flow", s.flow)
-                put("encryption", s.encryption)
-                put("network", s.network)
-                put("tls", s.tls)
-                put("sni", s.sni)
-                put("publicKey", s.publicKey)
-                put("shortId", s.shortId)
-                put("fingerprint", s.fingerprint)
-                put("privateKey", s.privateKey)
-                put("presharedKey", s.presharedKey)
-                put("serverPublicKey", s.serverPublicKey)
-                put("localAddress", s.localAddress)
-                put("mtu", s.mtu)
-                put("awgParams", s.awgParams)
-                put("dns", s.dns)
-                put("path", s.path)
-                put("host", s.host)
-                put("extra", s.extra)
-                put("alpn", s.alpn)
-                put("url", subUrl)
-            })
+            for (s in serverList) {
+                if (hideKeysForParts(s.id, s.name, s.protocol, s.address, s.port).any { it in hidden }) continue
+                val key = endpointKey(s.protocol, s.address, s.port)
+                if (key != null && !seen.add(subUrl + "|" + key)) continue
+                serversJson.put(org.json.JSONObject().apply {
+                    put("id", s.id)
+                    put("name", s.name)
+                    put("protocol", s.protocol)
+                    put("address", s.address)
+                    put("port", s.port)
+                    put("flag", s.flag)
+                    put("uuid", s.uuid)
+                    put("password", s.password)
+                    put("flow", s.flow)
+                    put("encryption", s.encryption)
+                    put("network", s.network)
+                    put("tls", s.tls)
+                    put("sni", s.sni)
+                    put("publicKey", s.publicKey)
+                    put("shortId", s.shortId)
+                    put("fingerprint", s.fingerprint)
+                    put("privateKey", s.privateKey)
+                    put("presharedKey", s.presharedKey)
+                    put("serverPublicKey", s.serverPublicKey)
+                    put("localAddress", s.localAddress)
+                    put("mtu", s.mtu)
+                    put("awgParams", s.awgParams)
+                    put("dns", s.dns)
+                    put("path", s.path)
+                    put("host", s.host)
+                    put("extra", s.extra)
+                    put("alpn", s.alpn)
+                    put("url", subUrl)
+                })
+            }
+            val finalJson = dedupeServerArray(serversJson)
+            if (store.saveCacheIfUnchanged(originalCache, finalJson.toString(), finalJson.length(), subUrl)) return
         }
-        val finalJson = dedupeServerArray(serversJson)
-        store.setCachedServersJson(finalJson.toString())
-        store.setCachedServersCount(finalJson.length())
-        store.setLastRefreshTime(System.currentTimeMillis())
+        throw IllegalStateException("Server cache changed repeatedly during import")
     }
 
     fun login(tgId: Long) {

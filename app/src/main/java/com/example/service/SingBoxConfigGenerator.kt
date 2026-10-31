@@ -198,6 +198,13 @@ class SingBoxConfigGenerator {
         val needSniff = dnsHijack || (useRules && (normalizedDomains.isNotEmpty() || blockAds || bypassRussia || bypassChina))
         return JSONObject().apply {
             put("rules", JSONArray().apply {
+                // The loopback mixed inbound is used by the app for tunnel probes.
+                // Route it through the selected server even when domain split rules
+                // would otherwise send the probe directly outside the VPN.
+                put(JSONObject().apply {
+                    put("inbound", JSONArray().put("mixed-in"))
+                    put("outbound", outboundTag)
+                })
                 // sniff is a non-final rule action (inbound sniff was removed in
                 // sing-box 1.13): it must run first so the protocol/domain of every
                 // connection is detected before later rules route on it.

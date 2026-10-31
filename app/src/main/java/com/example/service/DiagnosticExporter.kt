@@ -39,6 +39,7 @@ object DiagnosticExporter {
                 w.write("abi: ${Build.SUPPORTED_ABIS.joinToString()}\n")
                 w.write("vpn state: ${com.example.ui.RedShiftState.connectionState}")
                 w.write("\n")
+                w.write("connectivity_probe=${com.example.ui.RedShiftState.connectivityStatus}\n")
                 w.write("tunReady=${RedShiftVpnService.tunReady} tunFd=${RedShiftVpnService.tunFdRaw}")
                 w.write("\n")
                 // Raw logs, URLs and tunnel configuration may contain credentials.

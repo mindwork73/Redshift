@@ -3,6 +3,7 @@ package com.example
 import com.example.service.SubscriptionClient
 import com.example.ui.RedShiftState
 import com.example.ui.Server
+import com.example.ui.ConnectionState
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -15,6 +16,25 @@ import android.util.Base64
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class SubscriptionCompatibilityTest {
+    @Test fun refreshKeepsActiveServerUntilDisconnect() {
+        val oldState = RedShiftState.connectionState
+        val oldServers = RedShiftState.servers.toList()
+        val url = "https://example.invalid/sub"
+        val active = Server(id = "old", flag = "", name = "NL", protocol = "VLESS", address = "198.51.100.1", port = 443, subscriptionUrl = url)
+        val replacement = active.copy(id = "new", address = "198.51.100.2")
+        try {
+            RedShiftState.servers.clear()
+            RedShiftState.servers.add(replacement)
+            RedShiftState.connectionState = ConnectionState.CONNECTED
+            val method = RedShiftState.javaClass.getDeclaredMethod("keepActiveServerDuringImport", Server::class.java, String::class.java).apply { isAccessible = true }
+            method.invoke(RedShiftState, active, url)
+            assertEquals(listOf(active), RedShiftState.servers.toList())
+        } finally {
+            RedShiftState.connectionState = oldState
+            RedShiftState.servers.clear()
+            RedShiftState.servers.addAll(oldServers)
+        }
+    }
     @Test fun parsesBase64SubscriptionsAndJsonArrays() {
         val method = SubscriptionClient::class.java.getDeclaredMethod("parseSubscriptionBody", String::class.java).apply { isAccessible = true }
         val client = SubscriptionClient()

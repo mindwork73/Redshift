@@ -59,25 +59,35 @@ class SubscriptionRefreshWorker(
 
     override suspend fun doWork(): Result {
         val store = SettingsStore(applicationContext)
-        val url = store.getBlockingSubscriptionUrl()
-        if (url.isBlank()) return Result.success()
+        val urls = store.getBlockingSubscriptionUrls().sorted()
+        var failed = false
+        for (url in urls) {
+            if (!refreshOne(store, url)) failed = true
+        }
+        return if (failed) Result.retry() else Result.success()
+    }
 
+    private suspend fun refreshOne(store: SettingsStore, url: String): Boolean {
         val client = SubscriptionClient()
         val result = client.fetchSubscription(url)
 
-        if (result.error.isNotEmpty() || result.servers.isEmpty()) return Result.retry()
+        if (result.error.isNotEmpty() || result.servers.isEmpty()) return false
 
         // Merge: keep servers of other subscriptions (e.g. Amnezia vpn:// nodes),
-        // replace only this subscription's cached servers. Dedupe across all urls
-        // by endpoint so a refreshed slice never doubles existing nodes.
+        // replace only this subscription's cached servers. Deduplicate within each
+        // source so two independent subscriptions cannot erase one another.
         val serversJson = JSONArray()
         val seen = HashSet<String>()
+        val previous = mutableListOf<JSONObject>()
         val originalCache = store.getBlockingCachedServersJson()
-        try {
-            val existing = JSONArray(originalCache)
+        val existing = try { JSONArray(originalCache.ifBlank { "[]" }) } catch (_: org.json.JSONException) { return false }
+        run {
             for (i in 0 until existing.length()) {
                 val obj = existing.getJSONObject(i)
-                if (obj.optString("url") == url) continue
+                if (obj.optString("url") == url) {
+                    previous.add(obj)
+                    continue
+                }
                 val key = endpointKey(
                     obj.optString("protocol", ""),
                     obj.optString("address", ""),
@@ -86,13 +96,18 @@ class SubscriptionRefreshWorker(
                 if (key != null && !seen.add(obj.optString("url", "") + "|" + key)) continue
                 serversJson.put(obj)
             }
-        } catch (_: Exception) {}
+        }
 
         for (server in result.servers) {
             val key = endpointKey(server.protocol, server.address, server.port)
             if (key != null && !seen.add(url + "|" + key)) continue
+            val candidate = JSONObject().put("url", url).put("name", server.name).put("protocol", server.protocol)
+            val old = previous.firstOrNull { item ->
+                (key != null && endpointKey(item.optString("protocol"), item.optString("address"), item.optInt("port")) == key) ||
+                    nameKey(item) == nameKey(candidate)
+            }
             serversJson.put(JSONObject().apply {
-                put("id", server.id)
+                put("id", old?.optString("id")?.takeIf { it.isNotBlank() } ?: server.id)
                 put("name", server.name)
                 put("protocol", server.protocol)
                 put("address", server.address)
@@ -124,8 +139,6 @@ class SubscriptionRefreshWorker(
         }
 
         val finalJson = dedupeServerArray(serversJson)
-        if (!store.saveRefreshIfUnchanged(url, originalCache, finalJson.toString(), finalJson.length())) return Result.retry()
-
-        return Result.success()
+        return store.saveRefreshIfUnchanged(url, originalCache, finalJson.toString(), finalJson.length())
     }
 }

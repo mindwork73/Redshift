@@ -30,6 +30,7 @@ class SettingsStore(private val context: Context) {
         val KEY_REMOTE_PROXY_PORT = intPreferencesKey("remote_proxy_port")
         val KEY_LANGUAGE = stringPreferencesKey("language")
         val KEY_SUBSCRIPTION_URL = stringPreferencesKey("subscription_url")
+        val KEY_SUBSCRIPTION_URLS = stringSetPreferencesKey("subscription_urls")
         val KEY_NOTIFICATIONS = booleanPreferencesKey("notifications")
         val KEY_AUTO_REFRESH = booleanPreferencesKey("auto_refresh")
         val KEY_REFRESH_INTERVAL_HOURS = intPreferencesKey("refresh_interval_hours")
@@ -76,6 +77,7 @@ class SettingsStore(private val context: Context) {
     val remoteProxyPort: Flow<Int> = context.dataStore.data.map { it[KEY_REMOTE_PROXY_PORT] ?: 995 }
     val language: Flow<String> = context.dataStore.data.map { it[KEY_LANGUAGE] ?: "" }
     val subscriptionUrl: Flow<String> = context.dataStore.data.map { it[KEY_SUBSCRIPTION_URL] ?: "" }
+    val subscriptionUrls: Flow<Set<String>> = context.dataStore.data.map { subscriptionUrlsFrom(it) }
     val notifications: Flow<Boolean> = context.dataStore.data.map { it[KEY_NOTIFICATIONS] ?: true }
     val autoRefresh: Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_REFRESH] ?: false }
     val refreshIntervalHours: Flow<Int> = context.dataStore.data.map { it[KEY_REFRESH_INTERVAL_HOURS] ?: 6 }
@@ -113,7 +115,26 @@ class SettingsStore(private val context: Context) {
     suspend fun setRemoteProxyHost(value: String) = context.dataStore.edit { it[KEY_REMOTE_PROXY_HOST] = value }
     suspend fun setRemoteProxyPort(value: Int) = context.dataStore.edit { it[KEY_REMOTE_PROXY_PORT] = value }
     suspend fun setLanguage(value: String) = context.dataStore.edit { it[KEY_LANGUAGE] = value }
-    suspend fun setSubscriptionUrl(value: String) = context.dataStore.edit { it[KEY_SUBSCRIPTION_URL] = value }
+    private fun subscriptionUrlsFrom(prefs: Preferences): Set<String> {
+        prefs[KEY_SUBSCRIPTION_URLS]?.let { return it }
+        val urls = mutableSetOf<String>()
+        prefs[KEY_SUBSCRIPTION_URL]?.takeIf { it.startsWith("http://") || it.startsWith("https://") }?.let(urls::add)
+        try {
+            val items = org.json.JSONArray((prefs[KEY_CACHED_SERVERS_JSON] ?: "").ifBlank { "[]" })
+            for (i in 0 until items.length()) {
+                val url = items.optJSONObject(i)?.optString("url").orEmpty()
+                if (url.startsWith("http://") || url.startsWith("https://")) urls.add(url)
+            }
+        } catch (_: org.json.JSONException) { }
+        return urls
+    }
+
+    suspend fun setSubscriptionUrl(value: String) = context.dataStore.edit { prefs ->
+        val urls = subscriptionUrlsFrom(prefs).toMutableSet()
+        if (value.startsWith("http://") || value.startsWith("https://")) urls.add(value)
+        prefs[KEY_SUBSCRIPTION_URLS] = urls
+        prefs[KEY_SUBSCRIPTION_URL] = value
+    }
     suspend fun setNotifications(value: Boolean) = context.dataStore.edit { it[KEY_NOTIFICATIONS] = value }
     suspend fun setAutoRefresh(value: Boolean) = context.dataStore.edit { it[KEY_AUTO_REFRESH] = value }
     suspend fun setRefreshIntervalHours(value: Int) = context.dataStore.edit { it[KEY_REFRESH_INTERVAL_HOURS] = value }
@@ -142,18 +163,34 @@ class SettingsStore(private val context: Context) {
     suspend fun setSortByPing(value: Boolean) = context.dataStore.edit { it[KEY_SORT_BY_PING] = value }
     suspend fun setHiddenServers(value: Set<String>) = context.dataStore.edit { it[KEY_HIDDEN_SERVERS] = value }
 
+    suspend fun clearSavedServersAndSubscriptions() = context.dataStore.edit { prefs ->
+        prefs[KEY_SUBSCRIPTION_URL] = ""
+        prefs[KEY_SUBSCRIPTION_URLS] = emptySet()
+        prefs[KEY_CACHED_SERVERS_JSON] = "[]"
+        prefs[KEY_CACHED_SERVERS_COUNT] = 0
+        prefs[KEY_SELECTED_SERVER_ID] = ""
+        prefs[KEY_LAST_REFRESH_TIME] = 0L
+        prefs[KEY_HIDDEN_SERVERS] = emptySet()
+        prefs[KEY_TARIFF_NAME] = ""
+        prefs[KEY_SUBSCRIPTION_EXPIRY] = ""
+        prefs[KEY_SUBSCRIPTION_EXPIRY_TS] = 0L
+    }
+
     /** Remove only the selected subscription and its cached nodes in one transaction. */
     suspend fun removeSubscription(url: String): Boolean {
         var removed = false
         context.dataStore.edit { prefs ->
-            if (prefs[KEY_SUBSCRIPTION_URL] != url) return@edit
+            val urls = subscriptionUrlsFrom(prefs).toMutableSet()
+            if (url !in urls) return@edit
             val old = org.json.JSONArray((prefs[KEY_CACHED_SERVERS_JSON] ?: "").ifBlank { "[]" })
             val remaining = org.json.JSONArray()
             for (i in 0 until old.length()) {
                 val item = old.getJSONObject(i)
                 if (item.optString("url") != url) remaining.put(item)
             }
-            prefs[KEY_SUBSCRIPTION_URL] = ""
+            urls.remove(url)
+            prefs[KEY_SUBSCRIPTION_URLS] = urls
+            if (prefs[KEY_SUBSCRIPTION_URL] == url) prefs[KEY_SUBSCRIPTION_URL] = urls.sorted().firstOrNull().orEmpty()
             prefs[KEY_CACHED_SERVERS_JSON] = remaining.toString()
             prefs[KEY_CACHED_SERVERS_COUNT] = remaining.length()
             prefs[KEY_LAST_REFRESH_TIME] = 0L
@@ -169,7 +206,22 @@ class SettingsStore(private val context: Context) {
     suspend fun saveRefreshIfUnchanged(url: String, expectedCache: String, newCache: String, count: Int): Boolean {
         var saved = false
         context.dataStore.edit { prefs ->
-            if (prefs[KEY_SUBSCRIPTION_URL] != url || (prefs[KEY_CACHED_SERVERS_JSON] ?: "") != expectedCache) return@edit
+            if (url !in subscriptionUrlsFrom(prefs) || (prefs[KEY_CACHED_SERVERS_JSON] ?: "") != expectedCache) return@edit
+            prefs[KEY_CACHED_SERVERS_JSON] = newCache
+            prefs[KEY_CACHED_SERVERS_COUNT] = count
+            prefs[KEY_LAST_REFRESH_TIME] = System.currentTimeMillis()
+            saved = true
+        }
+        return saved
+    }
+
+    suspend fun saveCacheIfUnchanged(expectedCache: String, newCache: String, count: Int, sourceUrl: String): Boolean {
+        var saved = false
+        context.dataStore.edit { prefs ->
+            if ((prefs[KEY_CACHED_SERVERS_JSON] ?: "") != expectedCache) return@edit
+            if (sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://")) {
+                prefs[KEY_SUBSCRIPTION_URLS] = subscriptionUrlsFrom(prefs) + sourceUrl
+            }
             prefs[KEY_CACHED_SERVERS_JSON] = newCache
             prefs[KEY_CACHED_SERVERS_COUNT] = count
             prefs[KEY_LAST_REFRESH_TIME] = System.currentTimeMillis()
@@ -224,6 +276,8 @@ class SettingsStore(private val context: Context) {
     fun getBlockingSubscriptionUrl(): String {
         return runBlocking { subscriptionUrl.first() }
     }
+
+    fun getBlockingSubscriptionUrls(): Set<String> = runBlocking { subscriptionUrls.first() }
 
     fun getBlockingAutoRefresh(): Boolean {
         return runBlocking { autoRefresh.first() }

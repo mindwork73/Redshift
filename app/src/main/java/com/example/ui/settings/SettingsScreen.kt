@@ -423,7 +423,7 @@ fun SettingsScreen(onOpenSplitApps: () -> Unit = {}) {
             textContentColor = VpnColors.TextSecondary,
             confirmButton = {
                 TextButton(onClick = {
-                    RedShiftState.resetDefaultData()
+                    RedShiftState.clearSavedServersAndSubscriptions()
                     showResetDialog = false
                 }) {
                     Text(text = t("reset_cache"), color = VpnColors.Danger)
@@ -456,6 +456,14 @@ private fun SubscriptionSheet(onDismissRequest: () -> Unit) {
     val importing = RedShiftState.isImporting
 
     GlassSheet(onDismissRequest = onDismissRequest, title = t("subscription")) {
+        if (RedShiftState.subscriptionUrls.size > 1) {
+            RedShiftState.subscriptionUrls.forEachIndexed { index, item ->
+                val host = runCatching { Uri.parse(item).host }.getOrNull().orEmpty()
+                TextButton(enabled = !importing, onClick = { RedShiftState.selectSubscription(item) }) {
+                    Text("${if (item == url) "✓ " else ""}${index + 1}. $host")
+                }
+            }
+        }
         DetailRow(label = t("subscription_plan"), value = plan.ifBlank { DASH })
         DetailRow(label = t("subscription_expiry"), value = expiry.ifBlank { DASH })
         DetailRow(label = t("subscription_url"), value = shortenUrl(url))

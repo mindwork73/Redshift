@@ -118,6 +118,9 @@ object UiText {
             "en" to "Download failed. Check your connection and try again.",
             "ru" to "Не удалось скачать обновление. Проверьте соединение и попробуйте ещё раз."
         ),
+        "tunnel_checking" to mapOf("en" to "Checking internet through VPN…", "ru" to "Проверяем интернет через VPN…"),
+        "tunnel_reachable" to mapOf("en" to "Connection check passed", "ru" to "Проверка подключения пройдена"),
+        "tunnel_unconfirmed" to mapOf("en" to "Internet access could not be verified", "ru" to "Не удалось подтвердить доступ в интернет"),
         "no_subscription" to mapOf("en" to "No subscription", "ru" to "Нет подписки"),
         "section_connection" to mapOf("en" to "Connection", "ru" to "Подключение"),
         "start_on_boot" to mapOf("en" to "Start on boot", "ru" to "Запуск при старте системы"),

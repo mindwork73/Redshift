@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.ConnectionState
+import com.example.ui.ConnectivityStatus
 import com.example.ui.RedShiftState
 import com.example.ui.formatDuration
 import com.example.ui.formatPing
@@ -47,6 +48,15 @@ fun HomeScreen(onOpenServers: () -> Unit) {
             }
             Spacer(Modifier.height(34.dp))
             Text(when(state) { ConnectionState.CONNECTED -> t("connected"); ConnectionState.CONNECTING -> t("connecting"); ConnectionState.DISCONNECTED -> t("disconnected") }, color = if (state == ConnectionState.CONNECTED) mint else Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            if (state == ConnectionState.CONNECTED) {
+                val message = when (RedShiftState.connectivityStatus) {
+                    ConnectivityStatus.CHECKING -> t("tunnel_checking")
+                    ConnectivityStatus.REACHABLE -> t("tunnel_reachable")
+                    ConnectivityStatus.UNCONFIRMED -> t("tunnel_unconfirmed")
+                    ConnectivityStatus.NOT_CHECKED -> ""
+                }
+                if (message.isNotEmpty()) Text(message, color = muted, fontSize = 11.sp)
+            }
             Spacer(Modifier.height(5.dp))
             Text(if (state == ConnectionState.CONNECTED) server?.name ?: "—" else t("home_not_protected"), color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (state == ConnectionState.CONNECTED) formatDuration(RedShiftState.sessionDurationSeconds) else "REDPILL CLOUD", color = muted, fontSize = 12.sp, letterSpacing = 1.sp)

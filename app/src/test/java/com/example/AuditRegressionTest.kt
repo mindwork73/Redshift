@@ -1,6 +1,8 @@
 package com.example
 
 import androidx.test.core.app.ApplicationProvider
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.mutablePreferencesOf
 import com.example.service.DiagnosticExporter
 import com.example.service.SingBoxConfigGenerator
 import com.example.service.SubServer
@@ -9,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -18,6 +21,14 @@ import java.io.File
 @Config(sdk = [34])
 class AuditRegressionTest {
     private val server = SubServer(id = "test", name = "test", protocol = "Hysteria 2", address = "127.0.0.1", port = 443, flag = "")
+
+    @Before fun resetSubscriptions() = runBlocking {
+        val store = com.example.service.SettingsStore(ApplicationProvider.getApplicationContext())
+        store.setCachedServersJson("[]")
+        store.getBlockingSubscriptionUrls().toList().forEach { store.removeSubscription(it) }
+        store.setSubscriptionUrl("")
+        Unit
+    }
 
     @Test fun legacyRedpillAwgUsesDirectVpnDns() {
         assertEquals("nl.redpillcloud.ru", SingBoxConfigGenerator.amneziaEndpointHost("redpillcloud.ru"))
@@ -35,6 +46,8 @@ class AuditRegressionTest {
             assertFalse("Global must not apply geo bypass rules", rule.has("rule_set"))
         }
         assertEquals("test", config.getJSONObject("route").getString("final"))
+        assertEquals("mixed-in", rules.getJSONObject(0).getJSONArray("inbound").getString(0))
+        assertEquals("test", rules.getJSONObject(0).getString("outbound"))
     }
 
     @Test fun oversizedVpnLinkIsRejectedWithoutAllocation() = runBlocking {
@@ -80,6 +93,29 @@ class AuditRegressionTest {
         assertEquals("new-import", org.json.JSONArray(store.getBlockingCachedServersJson()).getJSONObject(0).getString("id"))
     }
 
+    @Test fun importRegistersSubscriptionOnlyWhenCacheWriteSucceeds() = runBlocking {
+        val store = com.example.service.SettingsStore(ApplicationProvider.getApplicationContext())
+        val url = "https://example.invalid/new"
+        store.setCachedServersJson("[{\"id\":\"existing\"}]")
+        assertFalse(store.saveCacheIfUnchanged("[]", "[]", 0, url))
+        assertFalse(url in store.getBlockingSubscriptionUrls())
+        assertTrue(store.saveCacheIfUnchanged("[{\"id\":\"existing\"}]", "[]", 0, url))
+        assertTrue(url in store.getBlockingSubscriptionUrls())
+    }
+
+    @Test fun clearingCacheRemovesSavedSubscriptionsAndPreventsStaleRefresh() = runBlocking {
+        val store = com.example.service.SettingsStore(ApplicationProvider.getApplicationContext())
+        val url = "https://example.invalid/sub"
+        store.setSubscriptionUrl(url)
+        store.setCachedServersJson("[{\"id\":\"server\",\"url\":\"$url\"}]")
+        val before = store.getBlockingCachedServersJson()
+        store.clearSavedServersAndSubscriptions()
+        assertEquals(emptySet<String>(), store.getBlockingSubscriptionUrls())
+        assertEquals("", store.getBlockingSubscriptionUrl())
+        assertEquals(0, org.json.JSONArray(store.getBlockingCachedServersJson()).length())
+        assertFalse(store.saveRefreshIfUnchanged(url, before, before, 1))
+    }
+
     @Test fun removingSubscriptionWorksWithoutCachedServers() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val store = com.example.service.SettingsStore(context)
@@ -89,6 +125,58 @@ class AuditRegressionTest {
         assertTrue(store.removeSubscription(url))
         assertEquals("", store.getBlockingSubscriptionUrl())
         assertEquals(0, org.json.JSONArray(store.getBlockingCachedServersJson()).length())
+    }
+
+    @Test fun migratesAllLegacySubscriptionsFromCache() {
+        val store = com.example.service.SettingsStore(ApplicationProvider.getApplicationContext())
+        val first = "https://example.invalid/one"
+        val second = "https://example.invalid/two"
+        val prefs = mutablePreferencesOf(
+            com.example.service.SettingsStore.KEY_SUBSCRIPTION_URL to first,
+            com.example.service.SettingsStore.KEY_CACHED_SERVERS_JSON to org.json.JSONArray().put(JSONObject().put("url", second)).put(JSONObject().put("url", "vpn://private" )).toString()
+        )
+        val method = store.javaClass.getDeclaredMethod("subscriptionUrlsFrom", Preferences::class.java).apply { isAccessible = true }
+        assertEquals(setOf(first, second), method.invoke(store, prefs))
+        prefs[com.example.service.SettingsStore.KEY_SUBSCRIPTION_URLS] = emptySet()
+        assertEquals(emptySet<String>(), method.invoke(store, prefs))
+    }
+
+    @Test fun refreshesOtherSubscriptionWhenOneFails() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val socket = java.net.ServerSocket(0).apply { soTimeout = 10000 }
+        val good = "http://127.0.0.1:${socket.localPort}/a"
+        val bad = "http://127.0.0.1:${socket.localPort}/b"
+        val responder = kotlin.concurrent.thread(isDaemon = true) {
+            repeat(2) {
+                socket.accept().use { peer ->
+                    val reader = peer.getInputStream().bufferedReader()
+                    val line = reader.readLine().orEmpty()
+                    while (true) { val h = reader.readLine() ?: break; if (h.isEmpty()) break }
+                    val success = line.contains(" /a ")
+                    val body = if (success) "vless://test@127.0.0.1:443#New" else "unavailable"
+                    peer.getOutputStream().apply {
+                        write("HTTP/1.1 ${if (success) "200 OK" else "503 Unavailable"}\r\nContent-Length: ${body.toByteArray().size}\r\nConnection: close\r\n\r\n$body".toByteArray())
+                        flush()
+                    }
+                }
+            }
+        }
+        try {
+            val store = com.example.service.SettingsStore(context)
+            store.setSubscriptionUrl(good)
+            store.setSubscriptionUrl(bad)
+            store.setCachedServersJson(org.json.JSONArray().apply {
+                put(JSONObject().put("id", "old-good").put("url", good).put("name", "Old").put("protocol", "VLESS").put("address", "198.51.100.1").put("port", 443))
+                put(JSONObject().put("id", "old-bad").put("url", bad).put("name", "Other").put("protocol", "VLESS").put("address", "198.51.100.2").put("port", 443))
+            }.toString())
+            val worker = androidx.work.testing.TestListenableWorkerBuilder<com.example.service.SubscriptionRefreshWorker>(context).build()
+            assertEquals(androidx.work.ListenableWorker.Result.retry(), worker.doWork())
+            val result = org.json.JSONArray(store.getBlockingCachedServersJson())
+            val rows = (0 until result.length()).map { result.getJSONObject(it) }
+            assertTrue(rows.any { it.optString("name") == "New" })
+            assertTrue(rows.any { it.optString("id") == "old-bad" })
+            assertEquals(setOf(good, bad), store.getBlockingSubscriptionUrls())
+        } finally { socket.close(); responder.join(1000) }
     }
 
     @Test fun refreshReplacesCurrentSubscriptionAndPreservesOtherSources() = runBlocking {
@@ -123,6 +211,7 @@ class AuditRegressionTest {
             val rows = (0 until items.length()).map { items.getJSONObject(it) }
             assertTrue(rows.any { it.optString("id") == "other" })
             assertTrue(rows.any { it.optString("uuid") == "new-credential" })
+            assertTrue(rows.any { it.optString("id") == "old" && it.optString("uuid") == "new-credential" })
             assertFalse(rows.any { it.optString("uuid") == "old-credential" })
         } finally {
             socket.close()
