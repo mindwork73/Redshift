@@ -52,6 +52,8 @@ class RedShiftVpnService : VpnService() {
     private var splitAppsOnly = false
 
     private var olcrtcRuntime: mobile.Runtime? = null
+    @Volatile private var recoveryOlcrtcUri: String? = null
+    private val olcrtcRecoveryLock = Any()
 
     // gomobile requires Go calls to run off the Android main thread (a locked Go
     // OS thread + a main-thread call into the runtime deadlocks with
@@ -85,6 +87,10 @@ class RedShiftVpnService : VpnService() {
     private var nextConnectionId = 0
 
     companion object {
+        @Volatile private var activeService: RedShiftVpnService? = null
+
+        /** Restarts only the Ghostlane runtime; the Android VPN interface stays established. */
+        fun recoverOlcrtc(): Boolean = activeService?.recoverCurrentOlcrtc() == true
         const val ACTION_CONNECT = "com.example.action.CONNECT"
         const val ACTION_CONNECT_AWG = "com.example.action.CONNECT_AWG"
         const val ACTION_DISCONNECT = "com.example.action.DISCONNECT"
@@ -205,6 +211,20 @@ class RedShiftVpnService : VpnService() {
         fun lastOlcrtcErrorForDiag(): String? = lastOlcrtcError
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        activeService = this
+    }
+
+    private fun recoverCurrentOlcrtc(): Boolean = synchronized(olcrtcRecoveryLock) {
+        val uri = recoveryOlcrtcUri ?: return@synchronized false
+        val generation = connectGen.get()
+        if (!tunReady || activeService !== this) return@synchronized false
+        stopOlcrtcRuntime()
+        if (connectGen.get() != generation || !tunReady || activeService !== this) return@synchronized false
+        startOlcrtcRuntime(uri, generation)
+    }
+
     private fun recordConnectionStage(stage: String) {
         getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE).edit().putString("stage", stage).apply()
     }
@@ -307,6 +327,7 @@ class RedShiftVpnService : VpnService() {
                 val pendingSplitAppsOnly = intent.getBooleanExtra(EXTRA_SPLIT_APPS_ONLY, false)
                 val olcrtcUri = intent.getStringExtra(EXTRA_OLCRTC_URI)
                     ?.takeIf { OlcrtcUri.isOlcrtcUri(it) }
+                recoveryOlcrtcUri = olcrtcUri
 
                 lastStartError = null
                 lastOlcrtcError = null
@@ -348,6 +369,7 @@ class RedShiftVpnService : VpnService() {
                 }
             }
             ACTION_DISCONNECT -> {
+                recoveryOlcrtcUri = null
                 connectGen.incrementAndGet()
                 stopOlcrtcRuntime()
                 disconnectVpn()
@@ -390,9 +412,17 @@ class RedShiftVpnService : VpnService() {
                 override fun onAvailable(network: Network) {
                     debugLogVPN("network available: $network — resetting stale tunnels")
                     resetAllTunnels()
+                    com.example.ui.RedShiftState.onUnderlyingNetworkChanged()
+                }
+                override fun onLost(network: Network) {
+                    com.example.ui.RedShiftState.onUnderlyingNetworkChanged()
                 }
             }
-            cm.registerDefaultNetworkCallback(callback)
+            val request = android.net.NetworkRequest.Builder()
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build()
+            cm.registerNetworkCallback(request, callback)
             networkCallback = callback
         } catch (e: Exception) {
             debugLogVPN("registerNetworkCallback failed: ${e.message}")
@@ -424,6 +454,7 @@ class RedShiftVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        recoveryOlcrtcUri = null
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             com.example.ui.RedShiftState.onSystemVpnRevoked()
         }
@@ -435,6 +466,8 @@ class RedShiftVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        recoveryOlcrtcUri = null
+        if (activeService === this) activeService = null
         wakeLockRenewalJob?.cancel()
         connectGen.incrementAndGet()
         unregisterNetworkCallback()

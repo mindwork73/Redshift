@@ -47,7 +47,15 @@ class SingBoxConfigGenerator {
         // olcRTC endpoints are WebRTC room ids, not hosts — never resolve those.
         val isOlcrtc = isOlcrtcProtocol(server)
         val endpoint = if (isAmneziaProtocol(server)) amneziaEndpointHost(server.address) else server.address
-        val cfgServer = if (isOlcrtc) server else server.copy(address = resolveHostToIp(endpoint))
+        val usesTls = server.tls || server.protocol.contains("TLS", true) ||
+            server.protocol.contains("REALITY", true) || server.publicKey.isNotEmpty() ||
+            server.protocol.contains("TROJAN", true) || server.protocol.contains("HYSTERIA", true) ||
+            server.protocol.contains("HY2", true)
+        val cfgServer = if (isOlcrtc) server else server.copy(
+            address = resolveHostToIp(endpoint),
+            // Resolving the socket endpoint must not replace the TLS identity.
+            sni = if (usesTls && server.sni.isBlank()) server.address else server.sni,
+        )
         val isAwg = isAmneziaProtocol(cfgServer)
         val outTag = cfgServer.id
 

@@ -54,11 +54,8 @@ object ServerPinger {
      */
     suspend fun pingViaProxy(host: String, port: Int, protocol: String = "", proxyPort: Int = SingBoxManager.MIXED_PORT): Int {
         val (probeHost, probePort) = normalizeTarget(host, port)
-        val ipHost = try {
-            java.net.InetAddress.getByName(probeHost).hostAddress ?: probeHost
-        } catch (_: Exception) { probeHost }
         return withContext(Dispatchers.IO) {
-            solidPing(ipHost, probePort, proxyPort)
+            solidPing(probeHost, probePort, proxyPort)
         }
     }
 
@@ -78,19 +75,21 @@ object ServerPinger {
             input.readFully(greeting)
             if (greeting[0] != 0x05.toByte() || greeting[1] != 0x00.toByte()) return -1
 
-            val addrBytes = host.split(".").mapNotNull { it.toIntOrNull() }.take(4)
-            val b4 = ByteArray(4)
-            for (i in 0 until 4) b4[i] = ((addrBytes.getOrElse(i) { 0 }) and 0xFF).toByte()
-            val request = byteArrayOf(
-                0x05, 0x01, 0x00, 0x01,
-                b4[0], b4[1], b4[2], b4[3],
-                ((port shr 8) and 0xFF).toByte(), (port and 0xFF).toByte()
-            )
+            if (port !in 1..65535) return -1
+            val address = socksAddress(host) ?: return -1
+            val request = byteArrayOf(0x05, 0x01, 0x00) + address +
+                byteArrayOf((port shr 8).toByte(), port.toByte())
             out.write(request)
             out.flush()
-            val reply = ByteArray(10)
-            input.readFully(reply)
-            if (reply[1] != 0x00.toByte()) return -1
+            if (input.readUnsignedByte() != 5 || input.readUnsignedByte() != 0) return -1
+            input.readUnsignedByte()
+            val length = when (input.readUnsignedByte()) {
+                1 -> 4
+                3 -> input.readUnsignedByte()
+                4 -> 16
+                else -> return -1
+            }
+            input.readFully(ByteArray(length + 2))
 
             socket.close()
             return (System.currentTimeMillis() - start).toInt().coerceAtLeast(1)
@@ -99,6 +98,24 @@ object ServerPinger {
         } finally {
             try { socket.close() } catch (_: Exception) {}
         }
+    }
+
+    internal fun socksAddress(host: String): ByteArray? {
+        val raw = host.trim().removePrefix("[").removeSuffix("]")
+        if (raw.isEmpty()) return null
+        if (':' in raw) {
+            val address = runCatching { java.net.InetAddress.getByName(raw).address }.getOrNull() ?: return null
+            return if (address.size == 16) byteArrayOf(4) + address else null
+        }
+        val parts = raw.split('.')
+        if (parts.size == 4 && parts.all { it.isNotEmpty() && it.all(Char::isDigit) }) {
+            val numbers = parts.map { it.toIntOrNull() ?: return null }
+            if (numbers.any { it !in 0..255 }) return null
+            return byteArrayOf(1) + numbers.map { it.toByte() }.toByteArray()
+        }
+        val encoded = runCatching { java.net.IDN.toASCII(raw).toByteArray(Charsets.US_ASCII) }.getOrNull() ?: return null
+        if (encoded.isEmpty() || encoded.size > 255) return null
+        return byteArrayOf(3, encoded.size.toByte()) + encoded
     }
 
     private fun icmpPing(host: String): Int? {

@@ -173,6 +173,13 @@ object RedShiftState {
 
     private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var timerJob: Job? = null
+    private var connectivityJob: Job? = null
+    private val underlyingNetworkChanges = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val recoveryPolicy = com.example.service.TunnelRecoveryPolicy()
+    @Volatile private var recoveringTunnel = false
+    @Volatile private var coreRecoveryFailed = false
+    var recoveryAttempts by mutableStateOf(0)
+        private set
     private var telemetryJob: Job? = null
     private var trafficMonitor: com.example.service.TrafficMonitor? = null
     private var lastStreamUpdate = 0L
@@ -186,7 +193,7 @@ object RedShiftState {
      * polling for a TUN fd and then calls startWithTunFd() on a dead session
      * (native start/stop on different threads -> SEGV, app dies without trace).
      */
-    private var vpnGeneration = 0L
+    @Volatile private var vpnGeneration = 0L
     private var connectJob: Job? = null
 
     /** Native teardown of the previous session; a server switch waits for it. */
@@ -1096,6 +1103,8 @@ private fun loadCachedServers() {
     }
 
     fun onSystemVpnRevoked() {
+        connectivityJob?.cancel()
+        connectivityStatus = ConnectivityStatus.NOT_CHECKED
         isSwitchingServer = false
         switchToken++
         vpnGeneration++
@@ -1112,7 +1121,12 @@ private fun loadCachedServers() {
         scope.launch { settingsStore?.setAutoReconnect(enabled) }
     }
 
+    fun onUnderlyingNetworkChanged() {
+        underlyingNetworkChanges.tryEmit(Unit)
+    }
+
     private fun disconnectVpnInternal() {
+        connectivityJob?.cancel()
         connectivityStatus = ConnectivityStatus.NOT_CHECKED
         debugLog("disconnect state=$connectionState")
         isSwitchingServer = false
@@ -1121,6 +1135,9 @@ private fun loadCachedServers() {
     }
 
     private fun stopVpnInternal(restartAfterStop: Boolean, restartToken: Long) {
+        connectivityJob?.cancel()
+        connectivityJob = null
+        connectivityStatus = ConnectivityStatus.NOT_CHECKED
         debugLog("stop gen=${vpnGeneration + 1} restart=$restartAfterStop token=$restartToken")
         // Bump generation first: any in-flight connect coroutine sees the
         // new value at its next suspension point and aborts, so native
@@ -1152,14 +1169,16 @@ private fun loadCachedServers() {
                 // period lets it release the olcRTC runtime (and 127.0.0.1:8788) before
                 // we ask for a brand new tunnel.
                 delay(600)
-                if (isSwitchingServer && switchToken == restartToken &&
-                    connectionState == ConnectionState.DISCONNECTED
-                ) {
-                    debugLog("restart: grace over, starting (token=$restartToken)")
-                    isSwitchingServer = false
-                    startVpnInternal()
-                } else {
-                    debugLog("restart cancelled: switching=$isSwitchingServer token=$switchToken/$restartToken state=$connectionState")
+                withContext(Dispatchers.Main) {
+                    if (isSwitchingServer && switchToken == restartToken &&
+                        connectionState == ConnectionState.DISCONNECTED
+                    ) {
+                        debugLog("restart: grace over, starting (token=$restartToken)")
+                        isSwitchingServer = false
+                        startVpnInternal()
+                    } else {
+                        debugLog("restart cancelled: switching=$isSwitchingServer token=$switchToken/$restartToken state=$connectionState")
+                    }
                 }
             }
         }
@@ -1252,9 +1271,11 @@ private fun loadCachedServers() {
                     }
                     debugLog("all ${candidates.size} attempt(s) failed")
                     connectionState = ConnectionState.DISCONNECTED
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     debugLog("EXCEPTION: ${e.javaClass.simpleName}: ${e.message}\n${e.stackTraceToString()}")
-                    connectionState = ConnectionState.DISCONNECTED
+                    if (gen == vpnGeneration) connectionState = ConnectionState.DISCONNECTED
                 }
             }
     }
@@ -1377,15 +1398,54 @@ private fun loadCachedServers() {
         }
 
         connectionState = ConnectionState.CONNECTED
+        coreRecoveryFailed = false
+        recoveryPolicy.observe(true, false, false, android.os.SystemClock.elapsedRealtime())
         connectivityStatus = ConnectivityStatus.CHECKING
-        scope.launch {
-            var reachable = TunnelConnectivity.check()
-            if (!reachable && gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
-                delay(2500)
-                reachable = TunnelConnectivity.check()
-            }
-            if (gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
+        connectivityJob?.cancel()
+        connectivityJob = scope.launch {
+            while (isActive && gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
+                var reachable = TunnelConnectivity.check()
+                if (!reachable && gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
+                    reachable = TunnelConnectivity.check(url = "https://connectivitycheck.gstatic.com/generate_204")
+                }
+                if (gen != vpnGeneration || connectionState != ConnectionState.CONNECTED) break
                 connectivityStatus = if (reachable) ConnectivityStatus.REACHABLE else ConnectivityStatus.UNCONFIRMED
+                val isOlcrtc = isOlcrtcServer(server)
+                val shouldRecover = recoveryPolicy.observe(
+                    reachable, hasValidatedUnderlyingNetwork(), autoReconnect,
+                    android.os.SystemClock.elapsedRealtime()
+                )
+                if (shouldRecover) {
+                    val fd = RedShiftVpnService.getLastTunFdRaw()
+                    val cfg = lastConfig
+                    if (fd > 0 && cfg.isNotBlank()) {
+                        recoveryAttempts++
+                        recoveringTunnel = true
+                        try {
+                            val recovered = try {
+                                withContext(Dispatchers.IO) {
+                                    if (isOlcrtc) {
+                                        RedShiftVpnService.recoverOlcrtc()
+                                    } else {
+                                        singBoxManager?.restartIfCurrent(cfg, fd) {
+                                            gen == vpnGeneration && RedShiftVpnService.tunReady &&
+                                                RedShiftVpnService.getLastTunFdRaw() == fd
+                                        } == true
+                                    }
+                                }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                false
+                            }
+                            if (gen == vpnGeneration && !isOlcrtc) coreRecoveryFailed = !recovered
+                        } finally {
+                            recoveringTunnel = false
+                        }
+                    }
+                }
+                val changed = withTimeoutOrNull(60_000) { underlyingNetworkChanges.first(); true } ?: false
+                if (changed) delay(5_000)
             }
         }
         debugLog("setting CONNECTED")
@@ -1400,6 +1460,17 @@ private fun loadCachedServers() {
         appContext?.startService(Intent(appContext, RedShiftVpnService::class.java).apply {
             action = RedShiftVpnService.ACTION_DISCONNECT
         })
+    }
+
+    private fun hasValidatedUnderlyingNetwork(): Boolean {
+        val context = appContext ?: return false
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        return cm.allNetworks.any { network ->
+            val caps = cm.getNetworkCapabilities(network)
+            caps != null && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
+                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        }
     }
 
     private fun startSessionTimer() {
@@ -1434,7 +1505,7 @@ private fun loadCachedServers() {
                 }
 
                 val cfg = lastConfig
-                if (cfg.isNotBlank() && singBoxManager?.isRunning() != true) {
+                if (!recoveringTunnel && !coreRecoveryFailed && cfg.isNotBlank() && singBoxManager?.isRunning() != true) {
                     if (!autoReconnect) {
                         disconnectVpnInternal()
                         break
@@ -1446,8 +1517,9 @@ private fun loadCachedServers() {
                     } else false
                     debugLog("watchdog: restart ok=$ok")
                     if (!ok) {
-                        disconnectVpnInternal()
-                        break
+                        // Keep the VPN interface up to avoid exposing traffic on failure.
+                        coreRecoveryFailed = true
+                        connectivityStatus = ConnectivityStatus.UNCONFIRMED
                     }
                 }
             }

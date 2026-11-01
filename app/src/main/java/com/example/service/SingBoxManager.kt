@@ -51,6 +51,12 @@ class SingBoxManager(private val context: Context) {
 
     fun start(configJson: String): Boolean = startWithTunFd(configJson, 0)
 
+    /** Recheck the session under the same lock as stop, before reopening the core. */
+    fun restartIfCurrent(configJson: String, tunFd: Int, current: () -> Boolean): Boolean = synchronized(nativeLock) {
+        if (!current()) return@synchronized false
+        startWithTunFd(configJson, tunFd)
+    }
+
     suspend fun ensureBinary(): Boolean = withContext(Dispatchers.IO) {
         val loaded = try {
             SingBoxNative.alive() >= 0

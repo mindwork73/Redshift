@@ -37,6 +37,17 @@ class AuditRegressionTest {
         assertEquals("redpillcloud.ru.example.org", SingBoxConfigGenerator.amneziaEndpointHost("redpillcloud.ru.example.org"))
     }
 
+    @Test fun tlsHostnameSurvivesEndpointResolution() {
+        val tlsServer = server.copy(protocol = "VLESS", address = "localhost", tls = true, uuid = "test")
+        val outbound = JSONObject(SingBoxConfigGenerator().generateConfig(tlsServer))
+            .getJSONArray("outbounds").getJSONObject(0)
+        assertEquals("127.0.0.1", outbound.getString("server"))
+        assertEquals("localhost", outbound.getJSONObject("tls").getString("server_name"))
+        val explicit = JSONObject(SingBoxConfigGenerator().generateConfig(tlsServer.copy(sni = "other.example")))
+            .getJSONArray("outbounds").getJSONObject(0)
+        assertEquals("other.example", explicit.getJSONObject("tls").getString("server_name"))
+    }
+
     @Test fun globalRoutingDoesNotSendRussianOrSplitDomainsDirect() {
         val config = JSONObject(SingBoxConfigGenerator().generateConfig(server, filesDir = "/data", splitDomains = listOf("example.com"), routingMode = "global", bypassRussia = true))
         val rules = config.getJSONObject("route").getJSONArray("rules")

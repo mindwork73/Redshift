@@ -40,6 +40,21 @@ object DiagnosticExporter {
                 w.write("vpn state: ${com.example.ui.RedShiftState.connectionState}")
                 w.write("\n")
                 w.write("connectivity_probe=${com.example.ui.RedShiftState.connectivityStatus}\n")
+                w.write("automatic_recovery_attempts=${com.example.ui.RedShiftState.recoveryAttempts}\n")
+                val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                val networks = cm.allNetworks.mapNotNull { cm.getNetworkCapabilities(it) }
+                    .filter { it.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN) }
+                val types = networks.mapNotNull {
+                    when {
+                        it.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                        it.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                        it.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                        else -> null
+                    }
+                }.distinct().sorted()
+                w.write("underlying_networks=${types.joinToString(",").ifEmpty { "none" }}\n")
+                w.write("underlying_validated=${networks.any { it.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) }}\n")
+                w.write("auto_reconnect=${com.example.ui.RedShiftState.autoReconnect}\n")
                 w.write("tunReady=${RedShiftVpnService.tunReady} tunFd=${RedShiftVpnService.tunFdRaw}")
                 w.write("\n")
                 // Raw logs, URLs and tunnel configuration may contain credentials.
