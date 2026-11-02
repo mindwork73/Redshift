@@ -1,0 +1,3 @@
+Natural Earth 1:110m Admin 0 Countries, https://www.naturalearthdata.com/.
+Public domain: https://www.naturalearthdata.com/about/terms-of-use/.
+world_land.json contains simplified coordinates generated from the Natural Earth vector data.

@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.util.Log
+import com.example.service.DiagLog
 import com.example.service.SettingsStore
 import java.io.File
 import java.io.FileWriter
@@ -13,9 +14,13 @@ class RedShiftApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        DiagLog.init(filesDir)
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
+                // One line in the shared log keeps the crash in sequence with the events
+                // that led to it (the stack itself goes to the crashes/ folder).
+                DiagLog.d("Crash", "uncaught on ${thread.name}: $throwable")
                 val crashDir = File(filesDir, "crashes")
                 crashDir.mkdirs()
                 val crashFile = File(crashDir, "crash_${System.currentTimeMillis()}.txt")
