@@ -137,6 +137,7 @@ object RedShiftState {
     var subscriptionUrl by mutableStateOf("")
     var subscriptionUrls by mutableStateOf<List<String>>(emptyList())
     var connectivityStatus by mutableStateOf(ConnectivityStatus.NOT_CHECKED)
+    @Volatile var lastConnectivityDetails: String = "none"
 
     var isImporting by mutableStateOf(false)
     var importError by mutableStateOf<String?>(null)
@@ -1401,14 +1402,20 @@ private fun loadCachedServers() {
         coreRecoveryFailed = false
         recoveryPolicy.observe(true, false, false, android.os.SystemClock.elapsedRealtime())
         connectivityStatus = ConnectivityStatus.CHECKING
+        lastConnectivityDetails = "pending"
         connectivityJob?.cancel()
         connectivityJob = scope.launch {
             while (isActive && gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
-                var reachable = TunnelConnectivity.check()
+                val firstProbe = TunnelConnectivity.checkDetailed()
+                var reachable = firstProbe.reachable
+                var secondDetails = "not_run"
                 if (!reachable && gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
-                    reachable = TunnelConnectivity.check(url = "https://connectivitycheck.gstatic.com/generate_204")
+                    val secondProbe = TunnelConnectivity.checkDetailed(url = "https://connectivitycheck.gstatic.com/generate_204")
+                    reachable = secondProbe.reachable
+                    secondDetails = "${secondProbe.outcome}:${secondProbe.elapsedMs}ms"
                 }
                 if (gen != vpnGeneration || connectionState != ConnectionState.CONNECTED) break
+                lastConnectivityDetails = "cloudflare=${firstProbe.outcome}:${firstProbe.elapsedMs}ms gstatic=$secondDetails"
                 connectivityStatus = if (reachable) ConnectivityStatus.REACHABLE else ConnectivityStatus.UNCONFIRMED
                 val isOlcrtc = isOlcrtcServer(server)
                 val shouldRecover = recoveryPolicy.observe(

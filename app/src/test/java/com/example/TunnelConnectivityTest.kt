@@ -36,7 +36,10 @@ class TunnelConnectivityTest {
             }
         }
         try {
-            assertTrue(TunnelConnectivity.check(server.localPort, "http://example.invalid/probe"))
+            val result = TunnelConnectivity.checkDetailed(server.localPort, "http://example.invalid/probe")
+            assertTrue(result.reachable)
+            assertEquals("http_204", result.outcome)
+            assertTrue(result.elapsedMs >= 0)
         } finally { server.close(); worker.join(1000) }
     }
 
@@ -44,6 +47,8 @@ class TunnelConnectivityTest {
         val server = ServerSocket(0)
         val port = server.localPort
         server.close()
-        assertFalse(TunnelConnectivity.check(port, "http://example.invalid/probe"))
+        val result = TunnelConnectivity.checkDetailed(port, "http://example.invalid/probe")
+        assertFalse(result.reachable)
+        assertTrue(result.outcome in setOf("connect_failure", "socket_failure"))
     }
 }

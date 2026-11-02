@@ -40,6 +40,7 @@ object DiagnosticExporter {
                 w.write("vpn state: ${com.example.ui.RedShiftState.connectionState}")
                 w.write("\n")
                 w.write("connectivity_probe=${com.example.ui.RedShiftState.connectivityStatus}\n")
+                w.write("connectivity_details=${com.example.ui.RedShiftState.lastConnectivityDetails}\n")
                 w.write("automatic_recovery_attempts=${com.example.ui.RedShiftState.recoveryAttempts}\n")
                 val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
                 val networks = cm.allNetworks.mapNotNull { cm.getNetworkCapabilities(it) }
@@ -73,6 +74,23 @@ object DiagnosticExporter {
                     else -> "OTHER"
                 }
                 w.write("selected_protocol=$safeProtocol routing=${state.routingMode.name}\n")
+                state.getSelectedServer()?.let { server ->
+                    fun fingerprint(value: String): String = java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(value.toByteArray(Charsets.UTF_8))
+                        .take(8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                    val endpoint = "${server.address.trim().lowercase(Locale.ROOT)}:${server.port}"
+                    w.write("endpoint_fingerprint=${fingerprint(endpoint)} port=${server.port}\n")
+                    if (safeProtocol == "AMNEZIAWG") {
+                        val params = try { org.json.JSONObject(server.subAwgParams) } catch (_: Exception) { org.json.JSONObject() }
+                        val names = listOf("jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5")
+                        val present = names.filter { params.has(it) && params.optString(it).isNotBlank() }
+                        w.write("awg_private_key_present=${server.subPrivateKey.isNotBlank()} server_key_present=${server.subServerPublicKey.isNotBlank()} preshared_key_present=${server.subPresharedKey.isNotBlank()} address_present=${server.subLocalAddress.isNotBlank()} mtu=${server.subMtu}\n")
+                        w.write("awg_parameters_present=${present.joinToString(",").ifEmpty { "none" }}\n")
+                        if (server.subServerPublicKey.isNotBlank()) w.write("awg_server_key_fingerprint=${fingerprint(server.subServerPublicKey.trim())}\n")
+                        val normalized = present.joinToString(";") { "$it=${params.optString(it).trim()}" }
+                        if (normalized.isNotEmpty()) w.write("awg_parameters_fingerprint=${fingerprint(normalized)}\n")
+                    }
+                }
                 w.write("split_enabled=${state.splitTunnelEnabled} split_by_apps=${state.splitTunnelByApps} split_only=${state.splitTunnelOnly}\n")
                 val diag = context.getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE)
                 w.write("last_import_result=${diag.getString("import_result", "none")} route=${diag.getString("import_route", "none")}\n")
