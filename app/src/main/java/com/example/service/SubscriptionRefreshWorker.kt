@@ -68,7 +68,8 @@ class SubscriptionRefreshWorker(
     }
 
     private suspend fun refreshOne(store: SettingsStore, url: String): Boolean {
-        val client = SubscriptionClient()
+        val client = SubscriptionClient(useVpnProxy =
+            com.example.ui.RedShiftState.connectionState == com.example.ui.ConnectionState.CONNECTED && RedShiftVpnService.tunReady)
         val result = client.fetchSubscription(url)
 
         if (result.error.isNotEmpty() || result.servers.isEmpty()) return false

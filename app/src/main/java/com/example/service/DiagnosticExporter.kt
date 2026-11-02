@@ -75,6 +75,7 @@ object DiagnosticExporter {
                 w.write("selected_protocol=$safeProtocol routing=${state.routingMode.name}\n")
                 w.write("split_enabled=${state.splitTunnelEnabled} split_by_apps=${state.splitTunnelByApps} split_only=${state.splitTunnelOnly}\n")
                 val diag = context.getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE)
+                w.write("last_import_result=${diag.getString("import_result", "none")} route=${diag.getString("import_route", "none")}\n")
                 val provider = diag.getString("provider", "none") ?: "none"
                 val olcrtc = if (provider == "none") "inactive" else if (RedShiftVpnService.tunReady) "tun-ready" else "starting-or-stopped"
                 w.write("olcrtc=$olcrtc\n")

@@ -7,6 +7,8 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.net.InetSocketAddress
+import java.net.Proxy
 
 data class SubServer(
     val id: String,
@@ -42,7 +44,8 @@ data class SubscriptionResult(
     val url: String,
     val servers: List<SubServer>,
     val error: String = "",
-    val profileInfo: ProfileInfo? = null
+    val profileInfo: ProfileInfo? = null,
+    val failureCode: String = "none"
 )
 
 data class ProfileInfo(
@@ -55,8 +58,14 @@ data class ProfileInfo(
     val expiresAt: String = ""
 )
 
-class SubscriptionClient {
+class SubscriptionClient(
+    private val useVpnProxy: Boolean = false,
+    private val proxyPort: Int = SingBoxManager.MIXED_PORT,
+) {
     private val client = OkHttpClient.Builder()
+        .apply {
+            if (useVpnProxy) proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", proxyPort)))
+        }
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -69,7 +78,7 @@ class SubscriptionClient {
             return@withContext if (server != null) {
                 SubscriptionResult(url, listOf(server))
             } else {
-                SubscriptionResult(url, emptyList(), "Invalid config link")
+                SubscriptionResult(url, emptyList(), "Invalid config link", failureCode = "invalid_profile")
             }
         }
         try {
@@ -79,7 +88,8 @@ class SubscriptionClient {
                 .build()
 
             val response = client.newCall(request).execute()
-            if (!response.isSuccessful) { response.close(); return@withContext SubscriptionResult(url, emptyList(), "HTTP ${response.code}") }
+            try {
+            if (!response.isSuccessful) { response.close(); return@withContext SubscriptionResult(url, emptyList(), "HTTP ${response.code}", failureCode = "http_${response.code}") }
             val responseBody = response.body ?: run { response.close(); return@withContext SubscriptionResult(url, emptyList(), "Empty response") }
             val source = responseBody.source()
             source.request(1_048_577)
@@ -116,9 +126,22 @@ class SubscriptionClient {
                 }
             }
             SubscriptionResult(url, servers, profileInfo = profileInfo)
+            } finally {
+                response.close()
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             DiagLog.d("Sub", "fetch failed ${e::class.simpleName}")
-            SubscriptionResult(url, emptyList(), e.message ?: "Unknown error")
+            val code = when (e) {
+                is java.net.SocketTimeoutException -> "timeout"
+                is java.net.UnknownHostException -> "dns"
+                is javax.net.ssl.SSLException -> "tls"
+                is java.net.ConnectException -> "connection"
+                is java.net.SocketException -> "connection"
+                else -> "network"
+            }
+            SubscriptionResult(url, emptyList(), code, failureCode = code)
         }
     }
 

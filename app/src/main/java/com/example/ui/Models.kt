@@ -1596,11 +1596,23 @@ private fun loadCachedServers() {
 
         scope.launch {
           try {
-            val client = SubscriptionClient()
+            val throughVpn = connectionState == ConnectionState.CONNECTED && RedShiftVpnService.tunReady
+            val client = SubscriptionClient(useVpnProxy = throughVpn)
             val result = client.fetchSubscription(url)
+            appContext?.getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE)?.edit()
+                ?.putString("import_result", if (result.error.isEmpty() && result.servers.isEmpty()) "empty" else result.failureCode)
+                ?.putString("import_route", if (throughVpn) "vpn" else "direct")
+                ?.apply()
 
             if (result.error.isNotEmpty()) {
-                importError = result.error
+                importError = when (result.failureCode) {
+                    "timeout" -> t("import_timeout")
+                    "dns" -> t("import_dns_error")
+                    "tls" -> t("import_tls_error")
+                    "connection" -> t("import_connection_error")
+                    "network" -> t("import_network_error")
+                    else -> result.error
+                }
                 debugLog("import failed")
             } else if (result.servers.isNotEmpty()) {
                 val isSingleCustomLink = SubscriptionClient.isDirectProfile(url)
