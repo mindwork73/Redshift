@@ -138,6 +138,16 @@ object RedShiftState {
     var subscriptionUrls by mutableStateOf<List<String>>(emptyList())
     var connectivityStatus by mutableStateOf(ConnectivityStatus.NOT_CHECKED)
     @Volatile var lastConnectivityDetails: String = "none"
+    private val connectivityHistoryLock = Any()
+    fun connectivityHistorySnapshot(): List<String> = synchronized(connectivityHistoryLock) {
+        appContext?.getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE)
+            ?.getString("probe_history", "")?.lines()?.filter { it.isNotBlank() }.orEmpty().takeLast(12)
+    }
+    private fun recordConnectivity(details: String) = synchronized(connectivityHistoryLock) {
+        val prefs = appContext?.getSharedPreferences("redshift_diag_state", Context.MODE_PRIVATE) ?: return@synchronized
+        val previous = prefs.getString("probe_history", "").orEmpty().lines().filter { it.isNotBlank() }
+        prefs.edit().putString("probe_history", (previous + "${System.currentTimeMillis()} $details").takeLast(12).joinToString("\n")).apply()
+    }
 
     var isImporting by mutableStateOf(false)
     var importError by mutableStateOf<String?>(null)
@@ -1403,6 +1413,7 @@ private fun loadCachedServers() {
         recoveryPolicy.observe(true, false, false, android.os.SystemClock.elapsedRealtime())
         connectivityStatus = ConnectivityStatus.CHECKING
         lastConnectivityDetails = "pending"
+        recordConnectivity("tunnel_started probe_pending")
         connectivityJob?.cancel()
         connectivityJob = scope.launch {
             while (isActive && gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
@@ -1412,10 +1423,11 @@ private fun loadCachedServers() {
                 if (!reachable && gen == vpnGeneration && connectionState == ConnectionState.CONNECTED) {
                     val secondProbe = TunnelConnectivity.checkDetailed(url = "https://connectivitycheck.gstatic.com/generate_204")
                     reachable = secondProbe.reachable
-                    secondDetails = "${secondProbe.outcome}:${secondProbe.elapsedMs}ms"
+                    secondDetails = "${secondProbe.outcome}:${secondProbe.elapsedMs}ms:${secondProbe.stage}"
                 }
                 if (gen != vpnGeneration || connectionState != ConnectionState.CONNECTED) break
-                lastConnectivityDetails = "cloudflare=${firstProbe.outcome}:${firstProbe.elapsedMs}ms gstatic=$secondDetails"
+                lastConnectivityDetails = "cloudflare=${firstProbe.outcome}:${firstProbe.elapsedMs}ms:${firstProbe.stage} gstatic=$secondDetails"
+                recordConnectivity(lastConnectivityDetails)
                 connectivityStatus = if (reachable) ConnectivityStatus.REACHABLE else ConnectivityStatus.UNCONFIRMED
                 val isOlcrtc = isOlcrtcServer(server)
                 val shouldRecover = recoveryPolicy.observe(

@@ -25,6 +25,9 @@ object DiagnosticExporter {
     private const val FILE_NAME = "redshift_diag.txt"
     private const val MAX_LOG_CHARS = 120_000
     private const val MAX_CRASHES = 5
+    private fun fingerprint(value: String): String = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .take(8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     /** Writes the bundle and returns the file to share, or null when nothing could be read. */
     fun build(context: Context): File? {
@@ -41,6 +44,7 @@ object DiagnosticExporter {
                 w.write("\n")
                 w.write("connectivity_probe=${com.example.ui.RedShiftState.connectivityStatus}\n")
                 w.write("connectivity_details=${com.example.ui.RedShiftState.lastConnectivityDetails}\n")
+                for (event in com.example.ui.RedShiftState.connectivityHistorySnapshot()) w.write("probe_history=$event\n")
                 w.write("automatic_recovery_attempts=${com.example.ui.RedShiftState.recoveryAttempts}\n")
                 val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
                 val networks = cm.allNetworks.mapNotNull { cm.getNetworkCapabilities(it) }
@@ -75,9 +79,6 @@ object DiagnosticExporter {
                 }
                 w.write("selected_protocol=$safeProtocol routing=${state.routingMode.name}\n")
                 state.getSelectedServer()?.let { server ->
-                    fun fingerprint(value: String): String = java.security.MessageDigest.getInstance("SHA-256")
-                        .digest(value.toByteArray(Charsets.UTF_8))
-                        .take(8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
                     val endpoint = "${server.address.trim().lowercase(Locale.ROOT)}:${server.port}"
                     w.write("endpoint_fingerprint=${fingerprint(endpoint)} port=${server.port}\n")
                     if (safeProtocol == "AMNEZIAWG") {
@@ -87,6 +88,7 @@ object DiagnosticExporter {
                         w.write("awg_private_key_present=${server.subPrivateKey.isNotBlank()} server_key_present=${server.subServerPublicKey.isNotBlank()} preshared_key_present=${server.subPresharedKey.isNotBlank()} address_present=${server.subLocalAddress.isNotBlank()} mtu=${server.subMtu}\n")
                         w.write("awg_parameters_present=${present.joinToString(",").ifEmpty { "none" }}\n")
                         if (server.subServerPublicKey.isNotBlank()) w.write("awg_server_key_fingerprint=${fingerprint(server.subServerPublicKey.trim())}\n")
+                        if (server.subLocalAddress.isNotBlank()) w.write("awg_client_address_fingerprint=${fingerprint(server.subLocalAddress.trim().substringBefore('/'))}\n")
                         val normalized = present.joinToString(";") { "$it=${params.optString(it).trim()}" }
                         if (normalized.isNotEmpty()) w.write("awg_parameters_fingerprint=${fingerprint(normalized)}\n")
                     }
@@ -100,6 +102,28 @@ object DiagnosticExporter {
                 w.write("provider=$provider transport=${diag.getString("transport", "none")}\n")
                 w.write("last_stage=${diag.getString("stage", "none")}\n")
                 w.write("last_failure=${diag.getString("failure", "none")}\n")
+                val config = try { org.json.JSONObject(File(context.filesDir, "singbox/config.json").readText()) } catch (_: Exception) { null }
+                val outbounds = config?.optJSONArray("outbounds")
+                val actual = (0 until (outbounds?.length() ?: 0)).asSequence().mapNotNull { outbounds?.optJSONObject(it) }
+                    .firstOrNull { it.optString("type") == "wireguard" }
+                if (actual != null) {
+                    val peer = actual.optJSONArray("peers")?.optJSONObject(0)
+                    val address = peer?.optString("address").orEmpty()
+                    val port = peer?.optInt("port") ?: 0
+                    if (address.isNotBlank()) {
+                        val endpoint = "${address.trim().lowercase(Locale.ROOT)}:$port"
+                        w.write("saved_core_awg_endpoint_fingerprint=${fingerprint(endpoint)} port=$port\n")
+                    }
+                    w.write("saved_core_awg_peer_present=${peer != null} private_key_present=${actual.optString("private_key").isNotBlank()}\n")
+                    val clientIp = actual.optJSONArray("address")?.optString(0).orEmpty().trim().substringBefore('/')
+                    if (clientIp.isNotBlank()) w.write("saved_core_awg_client_address_fingerprint=${fingerprint(clientIp)}\n")
+                    val pubkey = peer?.optString("public_key").orEmpty().trim()
+                    if (pubkey.isNotBlank()) w.write("saved_core_awg_server_key_fingerprint=${fingerprint(pubkey)}\n")
+                }
+                val coreEvents = SafeCoreLog.read(File(context.filesDir, "singbox/run.log")) + SafeCoreLog.read(File(context.filesDir, "singbox/err.txt"))
+                w.write("core_events=${coreEvents.size}\n")
+                coreEvents.takeLast(40).forEach { w.write("core_event=$it\n") }
+                w.write("note=core_events_are_allowlisted_categories_not_raw_logs; no_handshake_event_does_not_prove_no_handshake\n")
                 w.write("Diagnostic details containing subscription credentials are omitted.\n")
             }
             out

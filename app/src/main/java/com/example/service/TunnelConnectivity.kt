@@ -4,29 +4,39 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Call
+import okhttp3.EventListener
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.util.concurrent.TimeUnit
 
 /** An unsuccessful probe is inconclusive: the target itself might be blocked. */
 object TunnelConnectivity {
-    data class Result(val reachable: Boolean, val outcome: String, val elapsedMs: Long)
+    data class Result(val reachable: Boolean, val outcome: String, val elapsedMs: Long, val stage: String = "unknown")
 
     suspend fun check(proxyPort: Int = SingBoxConfigGenerator.MIXED_PORT, url: String = "https://www.cloudflare.com/cdn-cgi/trace"): Boolean =
         checkDetailed(proxyPort, url).reachable
 
     suspend fun checkDetailed(proxyPort: Int = SingBoxConfigGenerator.MIXED_PORT, url: String = "https://www.cloudflare.com/cdn-cgi/trace"): Result = withContext(Dispatchers.IO) {
         val started = System.nanoTime()
+        var stage = "request_created"
         fun elapsed() = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
         try {
             val client = OkHttpClient.Builder()
+                .eventListener(object : EventListener() {
+                    override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) { stage = "connect_started" }
+                    override fun secureConnectStart(call: Call) { stage = "tls_started" }
+                    override fun secureConnectEnd(call: Call, handshake: okhttp3.Handshake?) { stage = "tls_complete" }
+                    override fun requestHeadersEnd(call: Call, request: Request) { stage = "request_sent" }
+                    override fun responseHeadersStart(call: Call) { stage = "response_started" }
+                })
                 .proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", proxyPort)))
                 .connectTimeout(6, TimeUnit.SECONDS)
                 .readTimeout(6, TimeUnit.SECONDS)
                 .callTimeout(12, TimeUnit.SECONDS)
                 .build()
             client.newCall(Request.Builder().url(url).get().build()).execute().use {
-                Result(it.isSuccessful, "http_${it.code}", elapsed())
+                Result(it.isSuccessful, "http_${it.code}", elapsed(), stage)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -41,7 +51,7 @@ object TunnelConnectivity {
                 is java.io.IOException -> "io_failure"
                 else -> "unexpected_failure"
             }
-            Result(false, outcome, elapsed())
+            Result(false, outcome, elapsed(), stage)
         }
     }
 }

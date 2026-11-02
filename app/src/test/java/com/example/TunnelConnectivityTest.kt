@@ -39,6 +39,7 @@ class TunnelConnectivityTest {
             val result = TunnelConnectivity.checkDetailed(server.localPort, "http://example.invalid/probe")
             assertTrue(result.reachable)
             assertEquals("http_204", result.outcome)
+            assertEquals("response_started", result.stage)
             assertTrue(result.elapsedMs >= 0)
         } finally { server.close(); worker.join(1000) }
     }
