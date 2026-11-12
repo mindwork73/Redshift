@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,6 +51,32 @@ class ConnectionStateMachineTest {
         WorkManagerTestInitHelper.initializeTestWorkManager(context)
         RedShiftState.init(context)
         return RedShiftState
+    }
+
+    @Test
+    fun activityRecreationKeepsActiveServerAndTunnelManager() {
+        val s = freshState()
+        val oldState = s.connectionState
+        val oldServers = s.servers.toList()
+        val oldSelected = s.selectedServerId
+        val server = com.example.ui.Server(id = "active", name = "Active", flag = "", protocol = "VLESS", address = "127.0.0.1", port = 443)
+        val managerField = s.javaClass.getDeclaredField("singBoxManager").apply { isAccessible = true }
+        val manager = managerField.get(s)
+        try {
+            s.servers.clear()
+            s.servers.add(server)
+            s.selectedServerId = server.id
+            s.connectionState = ConnectionState.CONNECTED
+            s.init(ApplicationProvider.getApplicationContext<android.content.Context>())
+            assertEquals(server, s.getSelectedServer())
+            assertSame(manager, managerField.get(s))
+            assertEquals(ConnectionState.CONNECTED, s.connectionState)
+        } finally {
+            s.servers.clear()
+            s.servers.addAll(oldServers)
+            s.selectedServerId = oldSelected
+            s.connectionState = oldState
+        }
     }
 
     @Test

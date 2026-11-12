@@ -292,11 +292,7 @@ class RedShiftVpnService : VpnService() {
                     .setOngoing(true)
                     .build()
                 startForeground(1, notification)
-                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RedShift:VPN").apply {
-                    acquire(4 * 60 * 60 * 1000L)
-                }
-                startWakeLockRenewal()
+                acquireVpnWakeLock()
                 registerNetworkCallback()
                 val useLocal = intent.getBooleanExtra(EXTRA_USE_LOCAL_PROXY, false)
                 if (useLocal) {
@@ -337,6 +333,7 @@ class RedShiftVpnService : VpnService() {
                 // take ~10s on some OEM builds) runs off the main thread — blocking here
                 // froze the whole UI and got the process ANR-killed on protocol switches.
                 startForeground(1, buildVpnNotification(label, showNotifications))
+                acquireVpnWakeLock()
                 registerNetworkCallback()
 
                 val myGen = connectGen.incrementAndGet()
@@ -374,8 +371,7 @@ class RedShiftVpnService : VpnService() {
                 stopOlcrtcRuntime()
                 disconnectVpn()
                 unregisterNetworkCallback()
-                try { wakeLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
-                wakeLock = null
+                releaseVpnWakeLock()
                 stopForeground(true)
                 stopSelf()
             }
@@ -384,6 +380,33 @@ class RedShiftVpnService : VpnService() {
     }
 
     private var wakeLockRenewalJob: Job? = null
+    private val wakeLockGuard = Any()
+
+    private fun acquireVpnWakeLock() {
+        try {
+            synchronized(wakeLockGuard) {
+                val current = wakeLock
+                if (current == null || !current.isHeld) {
+                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RedShift:VPN").apply {
+                        acquire(4 * 60 * 60 * 1000L)
+                    }
+                }
+            }
+            startWakeLockRenewal()
+        } catch (e: Exception) {
+            debugLogVPN("wake lock unavailable: ${e.javaClass.simpleName}")
+        }
+    }
+
+    private fun releaseVpnWakeLock() {
+        wakeLockRenewalJob?.cancel()
+        wakeLockRenewalJob = null
+        synchronized(wakeLockGuard) {
+            try { wakeLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
+            wakeLock = null
+        }
+    }
 
     private fun startWakeLockRenewal() {
         wakeLockRenewalJob?.cancel()
@@ -392,9 +415,14 @@ class RedShiftVpnService : VpnService() {
                 delay(3 * 60 * 60 * 1000L)
                 if (!vpnRunning && tunFdRaw < 0) break
                 try {
-                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RedShift:VPN").apply {
-                        acquire(4 * 60 * 60 * 1000L)
+                    synchronized(wakeLockGuard) {
+                        if (isActive) {
+                            wakeLock?.let { if (it.isHeld) it.release() }
+                            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RedShift:VPN").apply {
+                                acquire(4 * 60 * 60 * 1000L)
+                            }
+                        }
                     }
                     debugLogVPN("wake lock renewed")
                 } catch (_: Exception) {}
@@ -468,7 +496,7 @@ class RedShiftVpnService : VpnService() {
     override fun onDestroy() {
         recoveryOlcrtcUri = null
         if (activeService === this) activeService = null
-        wakeLockRenewalJob?.cancel()
+        releaseVpnWakeLock()
         connectGen.incrementAndGet()
         unregisterNetworkCallback()
         stopOlcrtcRuntime()

@@ -5,12 +5,12 @@ class TunnelRecoveryPolicy {
     private var failures = 0
     private val attempts = ArrayDeque<Long>()
 
-    fun observe(reachable: Boolean, networkValidated: Boolean, enabled: Boolean, nowMs: Long): Boolean {
+    fun observe(reachable: Boolean, networkAvailable: Boolean, enabled: Boolean, nowMs: Long): Boolean {
         if (reachable) {
             failures = 0
             return false
         }
-        if (!networkValidated || !enabled) {
+        if (!networkAvailable || !enabled) {
             failures = 0
             return false
         }

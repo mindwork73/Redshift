@@ -239,6 +239,9 @@ object RedShiftState {
         get() = RedPillApiClient(baseUrl = apiBaseUrl, adminToken = apiAdminToken)
 
     fun init(context: Context) {
+        // Activity recreation must not erase the servers or replace the manager of a
+        // running tunnel. The existing collectors already keep the state up to date.
+        if (appContext != null) return
         appContext = context.applicationContext
         settingsStore = SettingsStore(context.applicationContext)
         singBoxManager = SingBoxManager(context.applicationContext)
@@ -1431,7 +1434,7 @@ private fun loadCachedServers() {
                 connectivityStatus = if (reachable) ConnectivityStatus.REACHABLE else ConnectivityStatus.UNCONFIRMED
                 val isOlcrtc = isOlcrtcServer(server)
                 val shouldRecover = recoveryPolicy.observe(
-                    reachable, hasValidatedUnderlyingNetwork(), autoReconnect,
+                    reachable, hasUnderlyingNetwork(), autoReconnect,
                     android.os.SystemClock.elapsedRealtime()
                 )
                 if (shouldRecover) {
@@ -1481,13 +1484,12 @@ private fun loadCachedServers() {
         })
     }
 
-    private fun hasValidatedUnderlyingNetwork(): Boolean {
+    private fun hasUnderlyingNetwork(): Boolean {
         val context = appContext ?: return false
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
         return cm.allNetworks.any { network ->
             val caps = cm.getNetworkCapabilities(network)
             caps != null && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
                 caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         }
     }

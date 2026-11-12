@@ -5,7 +5,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TunnelRecoveryPolicyTest {
-    @Test fun requiresThreeFailuresAndValidatedNetwork() {
+    @Test fun requiresThreeFailuresAndAvailableNetwork() {
         val p = TunnelRecoveryPolicy()
         assertFalse(p.observe(false, true, true, 0))
         assertFalse(p.observe(false, true, true, 60_000))
