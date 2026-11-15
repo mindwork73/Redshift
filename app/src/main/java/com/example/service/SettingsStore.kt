@@ -31,6 +31,7 @@ class SettingsStore(private val context: Context) {
         val KEY_LANGUAGE = stringPreferencesKey("language")
         val KEY_SUBSCRIPTION_URL = stringPreferencesKey("subscription_url")
         val KEY_SUBSCRIPTION_URLS = stringSetPreferencesKey("subscription_urls")
+        val KEY_PENDING_RESTORE_URLS = stringSetPreferencesKey("subscription_pending_restore_urls")
         val KEY_NOTIFICATIONS = booleanPreferencesKey("notifications")
         val KEY_AUTO_REFRESH = booleanPreferencesKey("auto_refresh")
         val KEY_REFRESH_INTERVAL_HOURS = intPreferencesKey("refresh_interval_hours")
@@ -129,12 +130,16 @@ class SettingsStore(private val context: Context) {
         return urls
     }
 
-    suspend fun setSubscriptionUrl(value: String) = context.dataStore.edit { prefs ->
+    suspend fun setSubscriptionUrl(value: String, restoreOnRefresh: Boolean = false) = context.dataStore.edit { prefs ->
         val urls = subscriptionUrlsFrom(prefs).toMutableSet()
         if (value.startsWith("http://") || value.startsWith("https://")) urls.add(value)
         prefs[KEY_SUBSCRIPTION_URLS] = urls
         prefs[KEY_SUBSCRIPTION_URL] = value
+        if (restoreOnRefresh && (value.startsWith("http://") || value.startsWith("https://"))) {
+            prefs[KEY_PENDING_RESTORE_URLS] = (prefs[KEY_PENDING_RESTORE_URLS] ?: emptySet()) + value
+        }
     }
+    suspend fun hasPendingRestore(url: String): Boolean = context.dataStore.data.first()[KEY_PENDING_RESTORE_URLS]?.contains(url) == true
     suspend fun setNotifications(value: Boolean) = context.dataStore.edit { it[KEY_NOTIFICATIONS] = value }
     suspend fun setAutoRefresh(value: Boolean) = context.dataStore.edit { it[KEY_AUTO_REFRESH] = value }
     suspend fun setRefreshIntervalHours(value: Int) = context.dataStore.edit { it[KEY_REFRESH_INTERVAL_HOURS] = value }
@@ -164,6 +169,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setHiddenServers(value: Set<String>) = context.dataStore.edit { it[KEY_HIDDEN_SERVERS] = value }
 
     suspend fun clearSavedServersAndSubscriptions() = context.dataStore.edit { prefs ->
+        prefs[KEY_PENDING_RESTORE_URLS] = emptySet()
         prefs[KEY_SUBSCRIPTION_URL] = ""
         prefs[KEY_SUBSCRIPTION_URLS] = emptySet()
         prefs[KEY_CACHED_SERVERS_JSON] = "[]"
@@ -189,6 +195,7 @@ class SettingsStore(private val context: Context) {
                 if (item.optString("url") != url) remaining.put(item)
             }
             urls.remove(url)
+            prefs[KEY_PENDING_RESTORE_URLS] = (prefs[KEY_PENDING_RESTORE_URLS] ?: emptySet()) - url
             prefs[KEY_SUBSCRIPTION_URLS] = urls
             if (prefs[KEY_SUBSCRIPTION_URL] == url) prefs[KEY_SUBSCRIPTION_URL] = urls.sorted().firstOrNull().orEmpty()
             prefs[KEY_CACHED_SERVERS_JSON] = remaining.toString()
@@ -203,10 +210,15 @@ class SettingsStore(private val context: Context) {
     }
 
     /** Do not let a slow refresh overwrite newer imports or a removed subscription. */
-    suspend fun saveRefreshIfUnchanged(url: String, expectedCache: String, newCache: String, count: Int): Boolean {
+    suspend fun saveRefreshIfUnchanged(url: String, expectedCache: String, newCache: String, count: Int, restoreKeys: Set<String> = emptySet()): Boolean {
         var saved = false
         context.dataStore.edit { prefs ->
             if (url !in subscriptionUrlsFrom(prefs) || (prefs[KEY_CACHED_SERVERS_JSON] ?: "") != expectedCache) return@edit
+            val pending = prefs[KEY_PENDING_RESTORE_URLS] ?: emptySet()
+            if (url in pending) {
+                prefs[KEY_HIDDEN_SERVERS] = (prefs[KEY_HIDDEN_SERVERS] ?: emptySet()) - restoreKeys
+                prefs[KEY_PENDING_RESTORE_URLS] = pending - url
+            }
             prefs[KEY_CACHED_SERVERS_JSON] = newCache
             prefs[KEY_CACHED_SERVERS_COUNT] = count
             prefs[KEY_LAST_REFRESH_TIME] = System.currentTimeMillis()
@@ -219,6 +231,7 @@ class SettingsStore(private val context: Context) {
         var saved = false
         context.dataStore.edit { prefs ->
             if ((prefs[KEY_CACHED_SERVERS_JSON] ?: "") != expectedCache) return@edit
+            prefs[KEY_PENDING_RESTORE_URLS] = (prefs[KEY_PENDING_RESTORE_URLS] ?: emptySet()) - sourceUrl
             if (sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://")) {
                 prefs[KEY_SUBSCRIPTION_URLS] = subscriptionUrlsFrom(prefs) + sourceUrl
             }

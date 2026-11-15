@@ -129,6 +129,19 @@ fun ServersScreen() {
         )
 
         Spacer(Modifier.height(RedSpace.L))
+        if (RedShiftState.subscriptionUrls.isNotEmpty()) {
+            GradientButton(
+                text = if (RedShiftState.isRefreshingSubscriptions) t("subscription_refreshing") else t("refresh_all_subscriptions"),
+                enabled = !RedShiftState.isRefreshingSubscriptions && !RedShiftState.isImporting,
+                icon = AppIcons.Refresh,
+                onClick = { RedShiftState.refreshSubscriptions() }
+            )
+            RedShiftState.subscriptionRefreshMessage?.let { message ->
+                Spacer(Modifier.height(RedSpace.Xs))
+                Text(message, style = RedType.Caption, color = VpnColors.TextSecondary)
+            }
+            Spacer(Modifier.height(RedSpace.M))
+        }
         if (RedShiftState.connectionState == ConnectionState.DISCONNECTED && RedShiftState.vpnError != null) {
             GlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Text(t("vpn_connect_failed"), style = RedType.BodyMedium, color = VpnColors.Danger)

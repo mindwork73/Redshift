@@ -8,6 +8,7 @@ import com.example.service.SingBoxConfigGenerator
 import com.example.service.SubServer
 import com.example.service.SubscriptionClient
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -138,6 +139,49 @@ class AuditRegressionTest {
         assertEquals(0, org.json.JSONArray(store.getBlockingCachedServersJson()).length())
     }
 
+    @Test fun manualRefreshFailurePreservesSavedServers() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val socket = java.net.ServerSocket(0)
+        val url = "http://127.0.0.1:${socket.localPort}/sub"
+        socket.close()
+        val store = com.example.service.SettingsStore(context)
+        store.setSubscriptionUrl(url)
+        val before = org.json.JSONArray().put(JSONObject().put("id", "keep").put("url", url)).toString()
+        store.setCachedServersJson(before)
+        assertFalse(com.example.service.SubscriptionRefresher.refreshOne(store, url))
+        assertEquals(before, store.getBlockingCachedServersJson())
+    }
+
+    @Test fun deferredReimportRestoresItsHiddenServersOnSuccessfulRefresh() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val socket = java.net.ServerSocket(0).apply { soTimeout = 10_000 }
+        val url = "http://127.0.0.1:${socket.localPort}/pending"
+        val responder = kotlin.concurrent.thread(isDaemon = true) {
+            socket.accept().use { peer ->
+                val reader = peer.getInputStream().bufferedReader()
+                while (true) { val line = reader.readLine() ?: break; if (line.isEmpty()) break }
+                val body = "vless://test@198.51.100.1:443#One".toByteArray()
+                peer.getOutputStream().apply {
+                    write("HTTP/1.1 200 OK\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                    write(body); flush()
+                }
+            }
+        }
+        try {
+            val store = com.example.service.SettingsStore(context)
+            store.setSubscriptionUrl(url, restoreOnRefresh = true)
+            store.setHiddenServers(setOf("nm:VLESS::ONE", "nm:VLESS::OTHER"))
+            store.setCachedServersJson("[]")
+            assertFalse(store.saveRefreshIfUnchanged(url, "stale", "[]", 0, setOf("nm:VLESS::ONE")))
+            assertTrue(store.hasPendingRestore(url))
+            assertTrue(com.example.service.SubscriptionRefresher.refreshOne(store, url))
+            val hidden = store.hiddenServers.first()
+            assertFalse("nm:VLESS::ONE" in hidden)
+            assertTrue("nm:VLESS::OTHER" in hidden)
+            assertFalse(store.hasPendingRestore(url))
+        } finally { socket.close(); responder.join(1000) }
+    }
+
     @Test fun migratesAllLegacySubscriptionsFromCache() {
         val store = com.example.service.SettingsStore(ApplicationProvider.getApplicationContext())
         val first = "https://example.invalid/one"
@@ -211,6 +255,7 @@ class AuditRegressionTest {
         try {
             val store = com.example.service.SettingsStore(context)
             store.setSubscriptionUrl(url)
+            store.setHiddenServers(setOf("nm:VLESS::CURRENT"))
             store.setCachedServersJson(org.json.JSONArray().apply {
                 put(JSONObject().put("id", "old").put("url", url).put("name", "Current").put("protocol", "VLESS").put("address", "198.51.100.2").put("port", 443).put("uuid", "old-credential"))
                 put(JSONObject().put("id", "other").put("url", "other-source").put("name", "Other").put("protocol", "VLESS").put("address", "198.51.100.3").put("port", 443))
@@ -224,6 +269,7 @@ class AuditRegressionTest {
             assertTrue(rows.any { it.optString("uuid") == "new-credential" })
             assertTrue(rows.any { it.optString("id") == "old" && it.optString("uuid") == "new-credential" })
             assertFalse(rows.any { it.optString("uuid") == "old-credential" })
+            assertTrue("ordinary refresh must not restore deleted servers", "nm:VLESS::CURRENT" in store.hiddenServers.first())
         } finally {
             socket.close()
             responder.join(1000)

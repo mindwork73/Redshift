@@ -99,10 +99,13 @@ fun ImportSubscriptionSheet(
 
     val importing = RedShiftState.isImporting
     val importError = RedShiftState.importError
+    val importNotice = RedShiftState.importNotice
     val clipboard = LocalClipboardManager.current
 
+    LaunchedEffect(Unit) { RedShiftState.clearImportMessages() }
+
     LaunchedEffect(submitted, importing, importError) {
-        if (submitted && !importing && importError == null) {
+        if (submitted && !importing && importError == null && importNotice == null) {
             onDismissRequest()
         }
     }
@@ -149,6 +152,11 @@ fun ImportSubscriptionSheet(
             )
         }
 
+        if (importNotice != null) {
+            Spacer(Modifier.height(RedSpace.S))
+            Text(text = importNotice, style = RedType.Caption, color = VpnColors.TextSecondary)
+        }
+
         Spacer(Modifier.height(RedSpace.M))
 
         if (importing) {
@@ -170,6 +178,8 @@ fun ImportSubscriptionSheet(
                 )
             }
             Spacer(Modifier.height(RedSpace.M))
+        } else if (importNotice != null) {
+            GradientButton(text = t("done"), onClick = onDismissRequest)
         } else {
             GradientButton(
                 text = t("import_action"),

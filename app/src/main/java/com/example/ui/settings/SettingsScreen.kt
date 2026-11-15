@@ -453,7 +453,7 @@ private fun SubscriptionSheet(onDismissRequest: () -> Unit) {
     val plan = RedShiftState.subscriptionPlan
     val expiry = RedShiftState.subscriptionExpiry
     val url = RedShiftState.subscriptionUrl
-    val importing = RedShiftState.isImporting
+    val importing = RedShiftState.isImporting || RedShiftState.isRefreshingSubscriptions
 
     GlassSheet(onDismissRequest = onDismissRequest, title = t("subscription")) {
         if (RedShiftState.subscriptionUrls.size > 1) {
@@ -467,6 +467,11 @@ private fun SubscriptionSheet(onDismissRequest: () -> Unit) {
         DetailRow(label = t("subscription_plan"), value = plan.ifBlank { DASH })
         DetailRow(label = t("subscription_expiry"), value = expiry.ifBlank { DASH })
         DetailRow(label = t("subscription_url"), value = shortenUrl(url))
+
+        RedShiftState.subscriptionRefreshMessage?.let { message ->
+            Spacer(Modifier.height(RedSpace.S))
+            Text(message, style = RedType.Caption, color = VpnColors.TextSecondary)
+        }
 
         Spacer(Modifier.height(RedSpace.L))
 
@@ -486,7 +491,7 @@ private fun SubscriptionSheet(onDismissRequest: () -> Unit) {
             GradientButton(
                 text = t("subscription_refresh"),
                 enabled = url.isNotBlank(),
-                onClick = { RedShiftState.importSubscription(url) }
+                onClick = { RedShiftState.refreshSubscriptions(url) }
             )
             Spacer(Modifier.height(RedSpace.Xs))
             GradientButton(

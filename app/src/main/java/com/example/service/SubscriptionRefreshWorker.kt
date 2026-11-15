@@ -62,12 +62,16 @@ class SubscriptionRefreshWorker(
         val urls = store.getBlockingSubscriptionUrls().sorted()
         var failed = false
         for (url in urls) {
-            if (!refreshOne(store, url)) failed = true
+            if (!SubscriptionRefresher.refreshOne(store, url)) failed = true
         }
         return if (failed) Result.retry() else Result.success()
     }
 
-    private suspend fun refreshOne(store: SettingsStore, url: String): Boolean {
+}
+
+/** Shared by periodic and user-requested refreshes. */
+object SubscriptionRefresher {
+    suspend fun refreshOne(store: SettingsStore, url: String): Boolean {
         val client = SubscriptionClient(useVpnProxy =
             com.example.ui.RedShiftState.connectionState == com.example.ui.ConnectionState.CONNECTED && RedShiftVpnService.tunReady)
         val result = client.fetchSubscription(url)
@@ -140,6 +144,7 @@ class SubscriptionRefreshWorker(
         }
 
         val finalJson = dedupeServerArray(serversJson)
-        return store.saveRefreshIfUnchanged(url, originalCache, finalJson.toString(), finalJson.length())
+        val restoreKeys = com.example.ui.RedShiftState.hiddenKeysForImported(result.servers)
+        return store.saveRefreshIfUnchanged(url, originalCache, finalJson.toString(), finalJson.length(), restoreKeys)
     }
 }

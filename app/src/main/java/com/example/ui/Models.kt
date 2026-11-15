@@ -151,6 +151,9 @@ object RedShiftState {
 
     var isImporting by mutableStateOf(false)
     var importError by mutableStateOf<String?>(null)
+    var importNotice by mutableStateOf<String?>(null)
+    var isRefreshingSubscriptions by mutableStateOf(false)
+    var subscriptionRefreshMessage by mutableStateOf<String?>(null)
     var loginError by mutableStateOf<String?>(null)
     var isLoadingUser by mutableStateOf(false)
 
@@ -261,7 +264,7 @@ object RedShiftState {
             val savedUrl = runCatching { store.subscriptionUrl.first() }.getOrDefault("")
             if (savedUrl.startsWith("http") && (!isLoggedIn || subscriptionPlan.isBlank())) {
                 debugLog("auto-resync subscription on launch")
-                importSubscription(savedUrl)
+                importSubscription(savedUrl, restoreDeleted = false)
             }
         }
         scope.launch {
@@ -622,7 +625,7 @@ private fun loadCachedServers() {
 
     fun clearSavedServersAndSubscriptions() {
         val store = settingsStore ?: return
-        if (isImporting) return
+        if (isImporting || isRefreshingSubscriptions) return
         importGeneration++
         if (connectionState != ConnectionState.DISCONNECTED) disconnectVpnInternal()
         scope.launch {
@@ -1566,7 +1569,8 @@ private fun loadCachedServers() {
     }
 
     fun selectSubscription(url: String) {
-        if (url !in subscriptionUrls || url == subscriptionUrl || isImporting) return
+        if (url !in subscriptionUrls || url == subscriptionUrl || isImporting || isRefreshingSubscriptions) return
+        subscriptionRefreshMessage = null
         importGeneration++
         subscriptionPlan = ""
         subscriptionExpiry = ""
@@ -1578,10 +1582,48 @@ private fun loadCachedServers() {
         }
     }
 
+    fun clearImportMessages() {
+        importError = null
+        importNotice = null
+    }
+
+    /** Refresh only the requested source, or all sources from the servers screen. */
+    fun refreshSubscriptions(url: String? = null) {
+        val store = settingsStore ?: return
+        if (isImporting || isRefreshingSubscriptions) return
+        val urls = if (url == null) subscriptionUrls.toList() else listOf(url).filter { it in subscriptionUrls }
+        if (urls.isEmpty()) return
+        isRefreshingSubscriptions = true
+        subscriptionRefreshMessage = null
+        scope.launch {
+            try {
+                var successes = 0
+                for (item in urls) {
+                    if (withContext(Dispatchers.IO) { com.example.service.SubscriptionRefresher.refreshOne(store, item) }) successes++
+                }
+                if (successes > 0 && connectionState == ConnectionState.DISCONNECTED) {
+                    reconcileCachedServers(store.cachedServersJson.first(), store.hiddenServers.first())
+                }
+                subscriptionRefreshMessage = when {
+                    successes == 0 -> t("subscription_refresh_failed")
+                    successes < urls.size -> t("subscription_refresh_partial")
+                    connectionState != ConnectionState.DISCONNECTED -> t("subscription_refresh_connected")
+                    else -> t("subscription_refresh_success")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                subscriptionRefreshMessage = t("subscription_refresh_failed")
+            } finally {
+                isRefreshingSubscriptions = false
+            }
+        }
+    }
+
     fun removeCurrentSubscription() {
         val url = subscriptionUrl
         val store = settingsStore ?: return
-        if (url.isBlank() || isImporting) return
+        if (url.isBlank() || isImporting || isRefreshingSubscriptions) return
         scope.launch {
             try {
                 if (!store.removeSubscription(url)) return@launch
@@ -1609,11 +1651,32 @@ private fun loadCachedServers() {
         }
     }
 
-    fun importSubscription(url: String) {
-        if (url.isBlank() || isImporting) return
+    fun hiddenKeysForImported(imported: List<SubServer>): Set<String> {
+        val counts = HashMap<String, Int>()
+        return imported.flatMap { server ->
+            val count = counts.getOrDefault(server.name, 0)
+            counts[server.name] = count + 1
+            val displayName = if (count > 0) "${server.name} (${deriveRegionFromAddress(server.address)})" else server.name
+            val displayId = if (count > 0) "${server.id}_$count" else server.id
+            hideKeysForParts(server.id, server.name, server.protocol, server.address, server.port) +
+                hideKeysForParts(displayId, displayName, server.protocol, server.address, server.port)
+        }.toSet()
+    }
+
+    private suspend fun restoreDeletedForImportedServers(imported: List<SubServer>) {
+        val restored = hiddenServers - hiddenKeysForImported(imported)
+        if (restored != hiddenServers) {
+            settingsStore?.setHiddenServers(restored)
+            hiddenServers = restored
+        }
+    }
+
+    fun importSubscription(url: String, restoreDeleted: Boolean = true) {
+        if (url.isBlank() || isImporting || isRefreshingSubscriptions) return
         val generation = ++importGeneration
         isImporting = true
         importError = null
+        importNotice = null
 
         scope.launch {
           try {
@@ -1626,6 +1689,28 @@ private fun loadCachedServers() {
                 ?.apply()
 
             if (result.error.isNotEmpty()) {
+                val validHttpUrl = runCatching { java.net.URI(url) }.getOrNull()?.let {
+                    (it.scheme.equals("http", true) || it.scheme.equals("https", true)) && !it.host.isNullOrBlank() && it.userInfo == null
+                } == true
+                val canSavePending = validHttpUrl && (
+                    result.failureCode in setOf("timeout", "dns", "connection", "network", "http_403", "http_429") ||
+                        result.failureCode.matches(Regex("http_5[0-9][0-9]"))
+                    )
+                if (canSavePending) {
+                    val store = settingsStore ?: error("Settings unavailable")
+                    if (subscriptionUrl != url) {
+                        subscriptionPlan = ""
+                        subscriptionExpiry = ""
+                        store.setTariffName("")
+                        store.setSubscriptionExpiry("")
+                        store.setSubscriptionExpiryTs(0L)
+                    }
+                    store.setSubscriptionUrl(url, restoreOnRefresh = restoreDeleted)
+                    subscriptionUrl = url
+                    importNotice = t("subscription_saved_pending")
+                    if (autoRefresh) appContext?.let { AutoRefreshScheduler.schedule(it, autoRefreshInterval.toLong()) }
+                    return@launch
+                }
                 importError = when (result.failureCode) {
                     "timeout" -> t("import_timeout")
                     "dns" -> t("import_dns_error")
@@ -1640,15 +1725,12 @@ private fun loadCachedServers() {
                 val previousSelected = getSelectedServer()
                 val dbgFirst = result.servers.first()
                 debugLog("import OK: n=${result.servers.size} first=${dbgFirst.protocol} ${dbgFirst.address}:${dbgFirst.port} psk=${dbgFirst.presharedKey.isNotEmpty()} priv=${dbgFirst.privateKey.isNotEmpty()} srvPub=${dbgFirst.serverPublicKey.isNotEmpty()} awgParams=${if (dbgFirst.awgParams.isBlank()) "-" else "yes"}")
+                if (restoreDeleted || settingsStore?.hasPendingRestore(url) == true) restoreDeletedForImportedServers(result.servers)
 
                 // A single custom node (Amnezia vpn:// deeplink et al.) is NOT a
                 // subscription: adding it must never touch the profile/user id or the
                 // cached server list of an already imported subscription.
 if (isSingleCustomLink) {
-                // Re-importing a directly entered link is an explicit request to add it again.
-                val restored = hiddenServers - result.servers.flatMap { hideKeysForParts(it.id, it.name, it.protocol, it.address, it.port) }.toSet()
-                hiddenServers = restored
-                settingsStore?.setHiddenServers(restored)
                 addServersFromSubResult(result.servers, url)
                 keepActiveServerDuringImport(previousSelected, url)
                 cacheServersToStore(result.servers, url)
